@@ -13,6 +13,10 @@
  */
 package org.gbif.clustering;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.google.common.collect.Lists;
 import java.util.Arrays;
 import java.util.List;
@@ -28,10 +32,6 @@ import org.gbif.clustering.parsers.OccurrenceFeatures;
 import org.gbif.clustering.parsers.OccurrenceRelationships;
 import org.gbif.clustering.parsers.RelationshipAssertion.FeatureAssertion;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for relationship assertions when using Spark Row as the source. Further tests should be

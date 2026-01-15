@@ -11,9 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.common.collect.Lists;
-import org.junit.jupiter.api.Test;
-
 import java.util.Collections;
+import org.junit.jupiter.api.Test;
 
 /** Tests for relationship assertions using simple POJOs as the source. */
 public class OccurrenceRelationshipsTest {
