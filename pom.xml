@@ -69,24 +69,24 @@
     <project.resources.sourceEncoding>${encoding}</project.resources.sourceEncoding>
 
     <!-- Tools-->
-    <lombok.version>1.18.28</lombok.version>
+    <lombok.version>1.18.42</lombok.version>
 
     <!-- Spark -->
-    <hadoop.version>3.2.4</hadoop.version>
-    <hbase.version>2.5.3-hadoop3</hbase.version>
+    <hadoop.version>3.3.5</hadoop.version>
+    <hbase.version>2.6.0-hadoop3</hbase.version>
     <curator.version>5.6.0</curator.version>
-    <spark.version>3.5.2</spark.version>
-    <iceberg.version>1.4.3</iceberg.version>
+    <spark.version>3.5.1</spark.version>
+    <iceberg.version>1.6.1</iceberg.version>
 
-    <scala.version>2.12.17</scala.version>
+    <scala.version>2.12.18</scala.version>
 
     <!-- These must be compatible with Spark version (see https://stackoverflow.com/a/50114083) -->
     <janino.version>3.1.2</janino.version>
-    <commons-compiler.version>3.1.2</commons-compiler.version>
+    <commons-compiler.version>3.1.12</commons-compiler.version>
     <resilience4j.version>1.7.0</resilience4j.version>
-    <jackson.version>2.11.3</jackson.version>
+    <jackson.version>2.19.4</jackson.version>
 
-    <junit4.version>4.13.2</junit4.version>
+    <junit4.version>4.14.1</junit4.version>
 
     <maven-scala-plugin.version>4.8.0</maven-scala-plugin.version>
     <googleJavaFormat.version>1.17.0</googleJavaFormat.version>
