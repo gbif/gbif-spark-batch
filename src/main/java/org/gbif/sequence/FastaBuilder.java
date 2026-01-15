@@ -60,7 +60,11 @@ public class FastaBuilder implements Serializable {
                   + ") "
                   + "SELECT concat('>', md5(seq), '\n', seq) AS f FROM sequences");
 
-      spark.sql(sql).write().text(targetFile);
+      spark.sql(sql)
+          .coalesce(1)
+          .write()
+          .mode("overwrite")
+          .text(targetFile);
     }
   }
 }
