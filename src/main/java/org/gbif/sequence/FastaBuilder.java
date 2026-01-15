@@ -39,8 +39,6 @@ public class FastaBuilder implements Serializable {
             .config("spark.sql.catalog.iceberg.type", "hive")
             .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog")
             .getOrCreate()) {
-      String fs = spark.sparkContext().hadoopConfiguration().get("fs.defaultFS");
-      System.out.println("fs.defaultFS=" + fs);
       spark.sql("use " + hiveDB);
       spark.sparkContext().conf().set("hive.exec.compress.output", "false");
 
