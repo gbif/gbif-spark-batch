@@ -16,6 +16,7 @@ package org.gbif.sequence;
 import java.io.File;
 import java.io.Serializable;
 import lombok.Builder;
+import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.api.java.UDF1;
 import org.apache.spark.sql.types.DataTypes;
@@ -33,7 +34,6 @@ public class FastaBuilder implements Serializable {
     try (SparkSession spark =
         SparkSession.builder()
             .appName("FASTA Builder")
-            .appName("Occurrence clustering")
             .config("spark.sql.warehouse.dir", new File("spark-warehouse").getAbsolutePath())
             .enableHiveSupport()
             .config("spark.sql.catalog.iceberg.type", "hive")
@@ -44,7 +44,7 @@ public class FastaBuilder implements Serializable {
 
       UDF1<String, String> normalize =
           s ->
-              s != null && s.length() > 0
+              s != null && !s.isEmpty()
                   ? s.toUpperCase().replaceAll("[^ACGTURYSWKMBDHVN]", "")
                   : null;
 
@@ -54,16 +54,17 @@ public class FastaBuilder implements Serializable {
           String.format(
               "      WITH sequences AS ("
                   + "  SELECT normalize(dnasequence) AS seq "
-                  + "  FROM occurrence_ext_gbif_dnaderiveddata "
+                  + "  FROM iceberg.%s.occurrence_ext_gbif_dnaderiveddata "
                   + "  WHERE dnasequence IS NOT NULL AND length(dnasequence) > 0 "
                   + "  GROUP BY normalize(dnasequence)"
                   + ") "
-                  + "SELECT concat('>', md5(seq), '\n', seq) AS f FROM sequences");
+                  + "SELECT concat('>', md5(seq), '\n', seq) AS f FROM sequences",
+              hiveDB);
 
       spark.sql(sql)
-          .coalesce(1)
+//          .coalesce(1)
           .write()
-          .mode("overwrite")
+          .mode(SaveMode.Overwrite)
           .text(targetFile);
     }
   }
