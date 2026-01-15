@@ -13,6 +13,7 @@
  */
 package org.gbif.sequence;
 
+import java.io.File;
 import java.io.Serializable;
 import lombok.Builder;
 import org.apache.spark.sql.SparkSession;
@@ -29,29 +30,37 @@ public class FastaBuilder implements Serializable {
   }
 
   public void run() {
-    SparkSession spark =
-        SparkSession.builder().appName("FASTA Builder").enableHiveSupport().getOrCreate();
-    spark.sql("use " + hiveDB);
-    spark.sparkContext().conf().set("hive.exec.compress.output", "false");
+    try (SparkSession spark =
+        SparkSession.builder()
+            .appName("FASTA Builder")
+            .appName("Occurrence clustering")
+            .config("spark.sql.warehouse.dir", new File("spark-warehouse").getAbsolutePath())
+            .enableHiveSupport()
+            .config("spark.sql.catalog.iceberg.type", "hive")
+            .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog")
+            .getOrCreate()) {
+      spark.sql("use " + hiveDB);
+      spark.sparkContext().conf().set("hive.exec.compress.output", "false");
 
-    UDF1<String, String> normalize =
-        s ->
-            s != null && s.length() > 0
-                ? s.toUpperCase().replaceAll("[^ACGTURYSWKMBDHVN]", "")
-                : null;
+      UDF1<String, String> normalize =
+          s ->
+              s != null && s.length() > 0
+                  ? s.toUpperCase().replaceAll("[^ACGTURYSWKMBDHVN]", "")
+                  : null;
 
-    spark.udf().register("normalize", normalize, DataTypes.StringType);
+      spark.udf().register("normalize", normalize, DataTypes.StringType);
 
-    String sql =
-        String.format(
-            "      WITH sequences AS ("
-                + "  SELECT normalize(dnasequence) AS seq "
-                + "  FROM occurrence_ext_gbif_dnaderiveddata "
-                + "  WHERE dnasequence IS NOT NULL AND length(dnasequence) > 0 "
-                + "  GROUP BY normalize(dnasequence)"
-                + ") "
-                + "SELECT concat('>', md5(seq), '\n', seq) AS f FROM sequences");
+      String sql =
+          String.format(
+              "      WITH sequences AS ("
+                  + "  SELECT normalize(dnasequence) AS seq "
+                  + "  FROM occurrence_ext_gbif_dnaderiveddata "
+                  + "  WHERE dnasequence IS NOT NULL AND length(dnasequence) > 0 "
+                  + "  GROUP BY normalize(dnasequence)"
+                  + ") "
+                  + "SELECT concat('>', md5(seq), '\n', seq) AS f FROM sequences");
 
-    spark.sql(sql).write().text(targetFile);
+      spark.sql(sql).write().text(targetFile);
+    }
   }
 }
