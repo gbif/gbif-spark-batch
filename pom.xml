@@ -86,7 +86,7 @@
     <resilience4j.version>1.7.0</resilience4j.version>
     <jackson.version>2.19.4</jackson.version>
 
-    <junit4.version>4.13.2</junit4.version>
+    <junit.version>5.14.2</junit.version>
 
     <maven-scala-plugin.version>4.8.0</maven-scala-plugin.version>
     <googleJavaFormat.version>1.17.0</googleJavaFormat.version>
@@ -283,9 +283,10 @@
     </dependency>
 
     <dependency>
-      <groupId>junit</groupId>
-      <artifactId>junit</artifactId>
-      <version>${junit4.version}</version>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-engine</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 

@@ -4,11 +4,16 @@ import static org.gbif.clustering.parsers.OccurrenceRelationships.catalogNumberO
 import static org.gbif.clustering.parsers.OccurrenceRelationships.concatIfEligible;
 import static org.gbif.clustering.parsers.OccurrenceRelationships.hashOrNull;
 import static org.gbif.clustering.parsers.RelationshipAssertion.FeatureAssertion.*;
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Test;
+
 import java.util.Collections;
-import org.junit.Test;
 
 /** Tests for relationship assertions using simple POJOs as the source. */
 public class OccurrenceRelationshipsTest {
@@ -381,13 +386,13 @@ public class OccurrenceRelationshipsTest {
 
   @Test
   public void testIsEligible() {
-    assertNull("Should be in deny list", hashOrNull("SN", true));
-    assertNull("Should be in deny list", hashOrNull("s.n.", true));
+    assertNull(hashOrNull("SN", true), "Should be in deny list");
+    assertNull(hashOrNull("s.n.", true), "Should be in deny list");
   }
 
   @Test
   public void testConcatIfEligible() {
-    assertNull("Should be filtered", concatIfEligible(":", "good Id", "SN"));
-    assertEquals("Should be allows", "GOODID:TIM", concatIfEligible(":", "good Id", "tim"));
+    assertNull(concatIfEligible(":", "good Id", "SN"), "Should be filtered");
+    assertEquals("GOODID:TIM", concatIfEligible(":", "good Id", "tim"), "Should be allows");
   }
 }

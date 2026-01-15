@@ -17,16 +17,16 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.SQLContext;
-import org.junit.BeforeClass;
+import org.junit.jupiter.api.BeforeAll;
 
 /** Base class to keep a shared Spark context for parallel tests. */
 public class BaseSparkTest {
 
-  static transient SparkContext sc;
-  static transient JavaSparkContext jsc;
-  static transient SQLContext sqlContext;
+  static SparkContext sc;
+  static JavaSparkContext jsc;
+  static SQLContext sqlContext;
 
-  @BeforeClass
+  @BeforeAll
   public static void setup() {
     if (sc == null) {
       SparkConf conf =
