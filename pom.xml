@@ -86,7 +86,7 @@
     <resilience4j.version>1.7.0</resilience4j.version>
     <jackson.version>2.19.4</jackson.version>
 
-    <junit4.version>4.14.1</junit4.version>
+    <junit4.version>4.13.2</junit4.version>
 
     <maven-scala-plugin.version>4.8.0</maven-scala-plugin.version>
     <googleJavaFormat.version>1.17.0</googleJavaFormat.version>
