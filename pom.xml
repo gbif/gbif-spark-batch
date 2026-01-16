@@ -11,7 +11,7 @@
   <groupId>org.gbif.spark</groupId>
   <artifactId>gbif-spark-batch</artifactId>
   <packaging>jar</packaging>
-  <version>1.0.1-SNAPSHOT</version>
+  <version>1.0.1</version>
 
   <name>GBIF :: gbif-spark-batch</name>
   <description>Batch processes using Spark</description>
@@ -20,7 +20,7 @@
     <connection>scm:git:git@github.com:gbif/gbif-spark-batch.git</connection>
     <url>https://github.com/gbif/gbif-spark-batch</url>
     <developerConnection>scm:git:git@github.com:gbif/gbif-spark-batch.git</developerConnection>
-    <tag>HEAD</tag>
+    <tag>gbif-spark-batch-1.0.1</tag>
   </scm>
 
   <distributionManagement>
