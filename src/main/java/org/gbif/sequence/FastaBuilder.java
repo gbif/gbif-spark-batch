@@ -63,7 +63,7 @@ public class FastaBuilder implements Serializable {
 
       spark
           .sql(sql)
-          //          .coalesce(1)
+          .coalesce(1)
           .write()
           .mode(SaveMode.Overwrite)
           .text(targetFile);
