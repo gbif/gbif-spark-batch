@@ -36,10 +36,6 @@
 
   <repositories>
     <repository>
-      <id>gbif-central</id>
-      <url>https://repository.gbif.org/repository/central/</url>
-    </repository>
-    <repository>
       <id>gbif-release</id>
       <url>https://repository.gbif.org/repository/releases/</url>
     </repository>
@@ -50,10 +46,6 @@
     <repository>
       <id>gbif-thirdparty</id>
       <url>https://repository.gbif.org/repository/thirdparty/</url>
-    </repository>
-    <repository>
-      <id>typesafe-release</id>
-      <url>https://repository.gbif.org/repository/typesafe/</url>
     </repository>
   </repositories>
 
