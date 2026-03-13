@@ -61,12 +61,7 @@ public class FastaBuilder implements Serializable {
                   + "SELECT concat('>', md5(seq), '\n', seq) AS f FROM sequences",
               hiveDB);
 
-      spark
-          .sql(sql)
-          .coalesce(1)
-          .write()
-          .mode(SaveMode.Overwrite)
-          .text(targetFile);
+      spark.sql(sql).coalesce(1).write().mode(SaveMode.Overwrite).text(targetFile);
     }
   }
 }

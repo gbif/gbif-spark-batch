@@ -76,6 +76,9 @@ public class Cluster2 implements Serializable {
   private String hbaseZK;
   private String targetDir;
   private int hashCountThreshold;
+
+  private static final String TAXONOMY_KEY =
+      "d7dddbf4-2cf0-4f39-9b2a-bb099caae36c"; // GBIF Backbone
   private static final StructType HASH_ROW_SCHEMA =
       DataTypes.createStructType(
           new StructField[] {
@@ -151,8 +154,11 @@ public class Cluster2 implements Serializable {
                     + "  recordNumber, fieldNumber, occurrenceID, otherCatalogNumbers, institutionCode, collectionCode, catalogNumber, "
                     + "  recordedBy, recordedByID, "
                     + "  ext_multimedia AS media "
-                    + "FROM %s",
-                sourceTableQualifiedName()))
+                    + "FROM %s "
+                    + "WHERE "
+                    + "  speciesKey IS NOT NULL AND "
+                    + "  NOT contains(taxonomicissue[%s], 'TAXON_MATCH_HIGHERRANK') ",
+                sourceTableQualifiedName(), TAXONOMY_KEY))
         .write()
         .format("parquet")
         .mode(SaveMode.Overwrite)
