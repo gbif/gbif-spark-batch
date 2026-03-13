@@ -67,6 +67,7 @@ import scala.Tuple2;
 @Builder
 @Data
 @Slf4j
+@Deprecated
 public class Cluster implements Serializable {
 
   private String hiveWarehousePath; // e.g. /stackable/warehouse/prod.db

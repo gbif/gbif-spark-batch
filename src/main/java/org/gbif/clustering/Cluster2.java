@@ -157,7 +157,7 @@ public class Cluster2 implements Serializable {
                     + "FROM %s "
                     + "WHERE "
                     + "  speciesKey IS NOT NULL AND "
-                    + "  NOT contains(taxonomicissue['%s'], 'TAXON_MATCH_HIGHERRANK') ",
+                    + "  NOT array_contains(taxonomicissue['%s'], 'TAXON_MATCH_HIGHERRANK') ",
                 sourceTableQualifiedName(), TAXONOMY_KEY))
         .write()
         .format("parquet")
