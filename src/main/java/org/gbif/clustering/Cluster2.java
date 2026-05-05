@@ -143,16 +143,14 @@ public class Cluster2 implements Serializable {
         .sql(
             String.format(
                 "SELECT"
-                    + " gbifId, datasetKey, basisOfRecord, publishingorgkey AS publishingOrgKey, datasetName, publisher AS publishingOrgName, "
-                    + "  CAST(kingdomKey AS String) AS kingdomKey, CAST(phylumKey AS String) AS phylumKey, CAST(classKey AS String) AS classKey, "
-                    + "  CAST(orderKey AS String) AS orderKey, CAST(familyKey AS String) AS familyKey, CAST(genusKey AS String) AS genusKey, "
-                    + "  CAST(speciesKey AS String) AS speciesKey, CAST(acceptedTaxonKey AS String) AS acceptedTaxonKey, CAST(taxonKey AS String) AS taxonKey, "
-                    + "  scientificName, acceptedScientificName, kingdom, phylum, order, family, genus, species, genericName, specificEpithet, taxonRank, "
-                    + "  typeStatus, preparations, "
+                    + "  gbifId, datasetKey, basisOfRecord, "
+                    + "  CAST(speciesKey AS String) AS speciesKey, CAST(taxonKey AS String) AS taxonKey, "
+                    + "  scientificName, "
+                    + "  typeStatus, "
                     + "  decimalLatitude, decimalLongitude, countryCode, "
                     + "  year, month, day, from_unixtime(eventDateGte) AS eventDate, "
                     + "  recordNumber, fieldNumber, occurrenceID, otherCatalogNumbers, institutionCode, collectionCode, catalogNumber, "
-                    + "  recordedBy, recordedByID, "
+                    + "  recordedBy, "
                     + "  ext_multimedia AS media "
                     + "FROM %s "
                     + "WHERE "
@@ -232,31 +230,10 @@ public class Cluster2 implements Serializable {
             "gbifId",
             "datasetKey",
             "basisOfRecord",
-            "publishingOrgKey",
-            "datasetName",
-            "publishingOrgName",
-            "kingdomKey",
-            "phylumKey",
-            "classKey",
-            "orderKey",
-            "familyKey",
-            "genusKey",
             "speciesKey",
-            "acceptedTaxonKey",
             "taxonKey",
             "scientificName",
-            "acceptedScientificName",
-            "kingdom",
-            "phylum",
-            "order",
-            "family",
-            "genus",
-            "species",
-            "genericName",
-            "specificEpithet",
-            "taxonRank",
             "typeStatus",
-            "preparations",
             "decimalLatitude",
             "decimalLongitude",
             "countryCode",
@@ -272,7 +249,6 @@ public class Cluster2 implements Serializable {
             "collectionCode",
             "catalogNumber",
             "recordedBy",
-            "recordedByID",
             "media");
 
     // creates e.g. t1.datasetKey AS t1_datasetKey, t2.datasetKey AS t2_datasetKey
