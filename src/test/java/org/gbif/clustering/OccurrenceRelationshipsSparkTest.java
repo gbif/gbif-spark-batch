@@ -39,8 +39,7 @@ import org.junit.jupiter.api.Test;
  */
 public class OccurrenceRelationshipsSparkTest extends BaseSparkTest {
 
-  // Schema mirrors the production occurrence HDFS view of GBIF with the exception of taxa keys
-  // being String
+  // Schema mirrors the fields needed for clustering with the exception of taxa keys being String
   // due to https://github.com/gbif/pipelines/issues/484 to allow for GBIF/ALA use.
   private static final StructType SCHEMA =
       new StructType(
@@ -48,32 +47,11 @@ public class OccurrenceRelationshipsSparkTest extends BaseSparkTest {
             DataTypes.createStructField("gbifId", DataTypes.LongType, true),
             DataTypes.createStructField("datasetKey", DataTypes.StringType, true),
             DataTypes.createStructField("basisOfRecord", DataTypes.StringType, true),
-            DataTypes.createStructField("publishingoOrgKey", DataTypes.StringType, true),
-            DataTypes.createStructField("datasetName", DataTypes.StringType, true),
-            DataTypes.createStructField("publisher", DataTypes.StringType, true),
-            DataTypes.createStructField("kingdomKey", DataTypes.StringType, true),
-            DataTypes.createStructField("phylumKey", DataTypes.StringType, true),
-            DataTypes.createStructField("classKey", DataTypes.StringType, true),
-            DataTypes.createStructField("orderKey", DataTypes.StringType, true),
-            DataTypes.createStructField("familyKey", DataTypes.StringType, true),
-            DataTypes.createStructField("genusKey", DataTypes.StringType, true),
             DataTypes.createStructField("speciesKey", DataTypes.StringType, true),
-            DataTypes.createStructField("acceptedTaxonKey", DataTypes.StringType, true),
             DataTypes.createStructField("taxonKey", DataTypes.StringType, true),
             DataTypes.createStructField("scientificName", DataTypes.StringType, true),
-            DataTypes.createStructField("acceptedScientificName", DataTypes.StringType, true),
-            DataTypes.createStructField("kingdom", DataTypes.StringType, true),
-            DataTypes.createStructField("phylum", DataTypes.StringType, true),
-            DataTypes.createStructField("order", DataTypes.StringType, true),
-            DataTypes.createStructField("family", DataTypes.StringType, true),
-            DataTypes.createStructField("genus", DataTypes.StringType, true),
-            DataTypes.createStructField("species", DataTypes.StringType, true),
-            DataTypes.createStructField("genericName", DataTypes.StringType, true),
-            DataTypes.createStructField("specificEpithet", DataTypes.StringType, true),
-            DataTypes.createStructField("taxonRank", DataTypes.StringType, true),
             DataTypes.createStructField(
                 "typeStatus", DataTypes.createArrayType(DataTypes.StringType), true),
-            DataTypes.createStructField("preparations", DataTypes.StringType, true),
             DataTypes.createStructField("decimalLatitude", DataTypes.DoubleType, true),
             DataTypes.createStructField("decimalLongitude", DataTypes.DoubleType, true),
             DataTypes.createStructField("countryCode", DataTypes.StringType, true),
@@ -91,8 +69,6 @@ public class OccurrenceRelationshipsSparkTest extends BaseSparkTest {
             DataTypes.createStructField("catalogNumber", DataTypes.StringType, true),
             DataTypes.createStructField(
                 "recordedBy", DataTypes.createArrayType(DataTypes.StringType), true),
-            DataTypes.createStructField(
-                "recordedByID", DataTypes.createArrayType(DataTypes.StringType), true),
           });
 
   @Test
