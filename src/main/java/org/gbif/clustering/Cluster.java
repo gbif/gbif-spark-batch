@@ -142,8 +142,8 @@ public class Cluster implements Serializable {
             String.format(
                 "SELECT"
                     + "  gbifId, datasetKey, basisOfRecord, "
-                    + "  classificationDetails['%s']['specieskey'] AS speciesKey, "
-                    + "  classificationDetails['%s']['taxonkey'] AS taxonKey, "
+                    + "  classificationDetails['%2$s']['specieskey'] AS speciesKey, "
+                    + "  classificationDetails['%2$s']['taxonkey'] AS taxonKey, "
                     + "  scientificName, "
                     + "  typeStatus, "
                     + "  decimalLatitude, decimalLongitude, countryCode, "
@@ -151,11 +151,11 @@ public class Cluster implements Serializable {
                     + "  recordNumber, fieldNumber, occurrenceID, otherCatalogNumbers, institutionCode, collectionCode, catalogNumber, "
                     + "  recordedBy, "
                     + "  ext_multimedia AS media "
-                    + "FROM %s "
+                    + "FROM %1$s "
                     + "WHERE "
-                    + "  classificationDetails['%s'] IS NOT NULL AND "
-                    + "  classificationDetails['%s']['specieskey'] IS NOT NULL AND "
-                    + "  NOT array_contains(taxonomicissue['%s'], 'TAXON_MATCH_HIGHERRANK') ",
+                    + "  classificationDetails['%2$s'] IS NOT NULL AND "
+                    + "  classificationDetails['%2$s']['specieskey'] IS NOT NULL AND "
+                    + "  NOT array_contains(taxonomicissue['%2$s'], 'TAXON_MATCH_HIGHERRANK') ",
                 sourceTableQualifiedName(), checklistKey))
         .write()
         .format("parquet")
