@@ -13,12 +13,15 @@
  */
 package org.gbif.clustering;
 
+import static org.gbif.clustering.HashUtilities.recordHashes;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Collectors;
 import lombok.Builder;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -42,12 +45,8 @@ import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.function.FlatMapFunction;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Encoders;
+import org.apache.spark.sql.*;
 import org.apache.spark.sql.Row;
-import org.apache.spark.sql.RowFactory;
-import org.apache.spark.sql.SaveMode;
-import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
@@ -67,9 +66,7 @@ import scala.Tuple2;
 @Builder
 @Data
 @Slf4j
-@Deprecated
 public class Cluster implements Serializable {
-
   private String hiveWarehousePath; // e.g. /stackable/warehouse/prod.db
   private String hiveDB;
   private String sourceTable;
@@ -80,6 +77,8 @@ public class Cluster implements Serializable {
   private String targetDir;
   private int hashCountThreshold;
 
+  private static final String TAXONOMY_KEY =
+      "d7dddbf4-2cf0-4f39-9b2a-bb099caae36c"; // GBIF Backbone
   private static final StructType HASH_ROW_SCHEMA =
       DataTypes.createStructType(
           new StructField[] {
@@ -100,30 +99,35 @@ public class Cluster implements Serializable {
             DataTypes.createStructField("o2", DataTypes.StringType, false)
           });
 
-  public static void main(String[] args) throws IOException {
+  public static void main(String[] args) throws IOException, AnalysisException {
     ArgsParser.parse(args).run();
   }
 
   /** Run the full process, generating relationships and refreshing the HBase table. */
   private void run() throws IOException {
-    removeTargetDir(); // fail fast if given bad config
+    try (FileSystem fileSystem = FileSystem.get(hadoopConf());
+        SparkSession spark =
+            SparkSession.builder()
+                .appName("Occurrence clustering")
+                .config("spark.sql.warehouse.dir", new File("spark-warehouse").getAbsolutePath())
+                .enableHiveSupport()
+                .config("spark.sql.catalog.iceberg.type", "hive")
+                .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog")
+                .getOrCreate()) {
+      spark.sql("use " + hiveDB);
 
-    SparkSession spark =
-        SparkSession.builder()
-            .appName("Occurrence clustering")
-            .config("spark.sql.warehouse.dir", new File("spark-warehouse").getAbsolutePath())
-            .enableHiveSupport()
-            .config("spark.sql.catalog.iceberg.type", "hive")
-            .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog")
-            .getOrCreate();
-    spark.sql("use " + hiveDB);
-
-    try (FileSystem fileSystem = FileSystem.get(hadoopConf())) {
+      // remove target HFile directory and temp tables
+      removeTargetDir(fileSystem);
       dropPreviousTables(fileSystem, spark);
+
+      // execute
+      createInputTable(spark);
       createCandidatePairs(spark);
-      Dataset<Row> relationships = generateRelationships(spark);
-      generateHFiles(relationships);
+      generateRelationships(spark);
+      generateHFiles(spark);
       replaceHBaseTable();
+
+      removeTargetDir(fileSystem); // clean up working directory
     }
   }
 
@@ -131,75 +135,86 @@ public class Cluster implements Serializable {
     return "iceberg." + hiveDB + "." + sourceTable;
   }
 
+  /** Reads the input and creates a smaller table with only the fields needed for clustering. */
+  private void createInputTable(SparkSession spark) {
+    // All taxa keys are converted to String to allow shared routines between GBIF and ALA
+    // (https://github.com/gbif/pipelines/issues/484)
+    spark
+        .sql(
+            String.format(
+                "SELECT"
+                    + "  gbifId, datasetKey, basisOfRecord, "
+                    + "  CAST(speciesKey AS String) AS speciesKey, CAST(taxonKey AS String) AS taxonKey, "
+                    + "  scientificName, "
+                    + "  typeStatus, "
+                    + "  decimalLatitude, decimalLongitude, countryCode, "
+                    + "  year, month, day, from_unixtime(eventDateGte) AS eventDate, "
+                    + "  recordNumber, fieldNumber, occurrenceID, otherCatalogNumbers, institutionCode, collectionCode, catalogNumber, "
+                    + "  recordedBy, "
+                    + "  ext_multimedia AS media "
+                    + "FROM %s "
+                    + "WHERE "
+                    + "  speciesKey IS NOT NULL AND "
+                    + "  NOT array_contains(taxonomicissue['%s'], 'TAXON_MATCH_HIGHERRANK') ",
+                sourceTableQualifiedName(), TAXONOMY_KEY))
+        .write()
+        .format("parquet")
+        .mode(SaveMode.Overwrite)
+        .saveAsTable(hiveTablePrefix + "_input");
+  }
+
   /**
    * Reads the input, and through a series of record hashing creates a table of candidate record
    * pairs for proper comparison.
    */
   private void createCandidatePairs(SparkSession spark) {
-    // Read the input fields needed for generating the hashes
-    Dataset<Row> occurrences =
-        spark.sql(
+    // Generate the hashes
+    FlatMapFunction<Row, Row> toHashes = row -> recordHashes(new RowOccurrenceFeatures(row));
+    spark
+        .sql(
             String.format(
                 "SELECT"
                     + "  gbifId, datasetKey, basisOfRecord, typeStatus, "
-                    + "  CAST(taxonKey AS String) AS taxonKey, CAST(speciesKey AS String) AS speciesKey, "
+                    + "  taxonKey, speciesKey, "
                     + "  decimalLatitude, decimalLongitude, year, month, day, recordedBy, "
                     + "  recordNumber, fieldNumber, occurrenceID, otherCatalogNumbers, institutionCode, "
                     + "  collectionCode, catalogNumber "
                     + "FROM %s",
-                sourceTableQualifiedName()));
-    Dataset<Row> hashes =
-        occurrences.flatMap(
-            (FlatMapFunction<Row, Row>)
-                row -> HashUtilities.recordHashes(new RowOccurrenceFeatures(row)),
-            Encoders.row(HASH_ROW_SCHEMA));
-    spark.sql("DROP TABLE IF EXISTS " + hiveTablePrefix + "_hashes PURGE");
-    hashes
+                hiveTablePrefix + "_input"))
+        .flatMap(toHashes, Encoders.row(HASH_ROW_SCHEMA))
         .write()
         .format("parquet")
         .mode(SaveMode.Overwrite)
         .saveAsTable(hiveTablePrefix + "_hashes");
 
     // To avoid NxN, filter to a threshold to exclude e.g. gut worm analysis datasets
-    Dataset<Row> hashCounts =
-        spark.sql(
+    spark
+        .sql(
             String.format(
-                "SELECT hash, count(*) AS c FROM %s_hashes GROUP BY hash", hiveTablePrefix));
-    spark.sql("DROP TABLE IF EXISTS " + hiveTablePrefix + "_hash_counts PURGE");
-    hashCounts
-        .write()
-        .format("parquet")
-        .mode(SaveMode.Overwrite)
-        .saveAsTable(hiveTablePrefix + "_hash_counts");
-    Dataset<Row> filteredHashes =
-        spark.sql(
-            String.format(
-                "SELECT t1.gbifID, t1.datasetKey, t1.hash "
-                    + "FROM %s_hashes t1"
-                    + "  JOIN %s_hash_counts t2 ON t1.hash=t2.hash "
-                    + "WHERE t2.c <= %d",
-                hiveTablePrefix, hiveTablePrefix, hashCountThreshold));
-    spark.sql("DROP TABLE IF EXISTS " + hiveTablePrefix + "_hashes_filtered PURGE");
-    filteredHashes
+                "SELECT gbifId, datasetKey, hash "
+                    + "FROM ( "
+                    + "  SELECT gbifId, datasetKey, hash, COUNT(*) OVER (PARTITION BY hash) AS cnt "
+                    + "  FROM %s_hashes "
+                    + ") sub "
+                    + "WHERE cnt <= %d AND cnt > 1",
+                hiveTablePrefix, hashCountThreshold))
         .write()
         .format("parquet")
         .mode(SaveMode.Overwrite)
         .saveAsTable(hiveTablePrefix + "_hashes_filtered");
 
     // distinct cross join to generate the candidate pairs for comparison
-    Dataset<Row> candidates =
-        spark.sql(
+    spark
+        .sql(
             String.format(
                 "SELECT "
                     + "t1.gbifId as id1, t1.datasetKey as ds1, t2.gbifId as id2, t2.datasetKey as ds2 "
-                    + "FROM %s_hashes_filtered t1 JOIN %s_hashes_filtered t2 ON t1.hash = t2.hash "
+                    + "FROM %1$s_hashes_filtered t1 JOIN %1$s_hashes_filtered t2 ON t1.hash = t2.hash "
                     + "WHERE "
                     + "  t1.gbifId < t2.gbifId AND "
                     + "  t1.datasetKey != t2.datasetKey "
                     + "GROUP BY t1.gbifId, t1.datasetKey, t2.gbifId, t2.datasetKey",
-                hiveTablePrefix, hiveTablePrefix));
-    spark.sql("DROP TABLE IF EXISTS " + hiveTablePrefix + "_candidates PURGE");
-    candidates
+                hiveTablePrefix))
         .write()
         .format("parquet")
         .mode(SaveMode.Overwrite)
@@ -207,60 +222,109 @@ public class Cluster implements Serializable {
   }
 
   /** Reads the candidate pairs table, and runs the record to record comparison. */
-  private Dataset<Row> generateRelationships(SparkSession spark) {
+  private void generateRelationships(SparkSession spark) {
     // Spark DF naming convention requires that we alias each term to avoid naming collision while
-    // still having named fields to access (i.e. not relying on the column number of the term). All
-    // taxa keys are converted to String to allow shared routines between GBIF and ALA
-    // (https://github.com/gbif/pipelines/issues/484)
-    Dataset<Row> pairs =
-        spark.sql(
+    // still having named fields to access (i.e. not relying on the column number of the term).
+    List<String> columns =
+        Arrays.asList(
+            "gbifId",
+            "datasetKey",
+            "basisOfRecord",
+            "speciesKey",
+            "taxonKey",
+            "scientificName",
+            "typeStatus",
+            "decimalLatitude",
+            "decimalLongitude",
+            "countryCode",
+            "year",
+            "month",
+            "day",
+            "eventDate",
+            "recordNumber",
+            "fieldNumber",
+            "occurrenceID",
+            "otherCatalogNumbers",
+            "institutionCode",
+            "collectionCode",
+            "catalogNumber",
+            "recordedBy",
+            "media");
+
+    // creates e.g. t1.datasetKey AS t1_datasetKey, t2.datasetKey AS t2_datasetKey
+    String t1Columns =
+        columns.stream()
+            .map(col -> "t1." + col + " AS t1_" + col)
+            .collect(Collectors.joining(", "));
+    String t2Columns =
+        columns.stream()
+            .map(col -> "t2." + col + " AS t2_" + col)
+            .collect(Collectors.joining(", "));
+
+    // expand the candidates with the fields needed to compare
+    spark
+        .sql(
             String.format(
-                "SELECT "
-                    + "  t1.gbifId AS t1_gbifId, t1.datasetKey AS t1_datasetKey, t1.basisOfRecord AS t1_basisOfRecord, t1.publishingorgkey AS t1_publishingOrgKey, t1.datasetName AS t1_datasetName, t1.publisher AS t1_publishingOrgName, "
-                    + "  CAST(t1.kingdomKey AS String) AS t1_kingdomKey, CAST(t1.phylumKey AS String) AS t1_phylumKey, CAST(t1.classKey AS String) AS t1_classKey, CAST(t1.orderKey AS String) AS t1_orderKey, CAST(t1.familyKey AS String) AS t1_familyKey, CAST(t1.genusKey AS String) AS t1_genusKey, CAST(t1.speciesKey AS String) AS t1_speciesKey, CAST(t1.acceptedTaxonKey AS String) AS t1_acceptedTaxonKey, CAST(t1.taxonKey AS String) AS t1_taxonKey, "
-                    + "  t1.scientificName AS t1_scientificName, t1.acceptedScientificName AS t1_acceptedScientificName, t1.kingdom AS t1_kingdom, t1.phylum AS t1_phylum, t1.order AS t1_order, t1.family AS t1_family, t1.genus AS t1_genus, t1.species AS t1_species, t1.genericName AS t1_genericName, t1.specificEpithet AS t1_specificEpithet, t1.taxonRank AS t1_taxonRank, "
-                    + "  t1.typeStatus AS t1_typeStatus, t1.preparations AS t1_preparations, "
-                    + "  t1.decimalLatitude AS t1_decimalLatitude, t1.decimalLongitude AS t1_decimalLongitude, t1.countryCode AS t1_countryCode, "
-                    + "  t1.year AS t1_year, t1.month AS t1_month, t1.day AS t1_day, from_unixtime(t1.eventDateGte) AS t1_eventDate, "
-                    + "  t1.recordNumber AS t1_recordNumber, t1.fieldNumber AS t1_fieldNumber, t1.occurrenceID AS t1_occurrenceID, t1.otherCatalogNumbers AS t1_otherCatalogNumbers, t1.institutionCode AS t1_institutionCode, t1.collectionCode AS t1_collectionCode, t1.catalogNumber AS t1_catalogNumber, "
-                    + "  t1.recordedBy AS t1_recordedBy, t1.recordedByID AS t1_recordedByID, "
-                    + "  t1.ext_multimedia AS t1_media, "
-                    + ""
-                    + "  t2.gbifId AS t2_gbifId, t2.datasetKey AS t2_datasetKey, t2.basisOfRecord AS t2_basisOfRecord, t2.publishingorgkey AS t2_publishingOrgKey, t2.datasetName AS t2_datasetName, t2.publisher AS t2_publishingOrgName, "
-                    + "  CAST(t2.kingdomKey AS String) AS t2_kingdomKey, CAST(t2.phylumKey AS String) AS t2_phylumKey, CAST(t2.classKey AS String) AS t2_classKey, CAST(t2.orderKey AS String) AS t2_orderKey, CAST(t2.familyKey AS String) AS t2_familyKey, CAST(t2.genusKey AS String) AS t2_genusKey, CAST(t2.speciesKey AS String) AS t2_speciesKey, CAST(t2.acceptedTaxonKey AS String) AS t2_acceptedTaxonKey, CAST(t2.taxonKey AS String) AS t2_taxonKey, "
-                    + "  t2.scientificName AS t2_scientificName, t2.acceptedScientificName AS t2_acceptedScientificName, t2.kingdom AS t2_kingdom, t2.phylum AS t2_phylum, t2.order AS t2_order, t2.family AS t2_family, t2.genus AS t2_genus, t2.species AS t2_species, t2.genericName AS t2_genericName, t2.specificEpithet AS t2_specificEpithet, t2.taxonRank AS t2_taxonRank, "
-                    + "  t2.typeStatus AS t2_typeStatus, t2.preparations AS t2_preparations, "
-                    + "  t2.decimalLatitude AS t2_decimalLatitude, t2.decimalLongitude AS t2_decimalLongitude, t2.countryCode AS t2_countryCode, "
-                    + "  t2.year AS t2_year, t2.month AS t2_month, t2.day AS t2_day, from_unixtime(t2.eventDateGte) AS t2_eventDate, "
-                    + "  t2.recordNumber AS t2_recordNumber, t2.fieldNumber AS t2_fieldNumber, t2.occurrenceID AS t2_occurrenceID, t2.otherCatalogNumbers AS t2_otherCatalogNumbers, t2.institutionCode AS t2_institutionCode, t2.collectionCode AS t2_collectionCode, t2.catalogNumber AS t2_catalogNumber, "
-                    + "  t2.recordedBy AS t2_recordedBy, t2.recordedByID AS t2_recordedByID, "
-                    + "  t2.ext_multimedia AS t2_media "
-                    + ""
-                    + "FROM %s h"
-                    + "  JOIN %s t1 ON h.id1 = t1.gbifID "
-                    + "  JOIN %s t2 ON h.id2 = t2.gbifID",
-                hiveTablePrefix + "_candidates",
-                sourceTableQualifiedName(),
-                sourceTableQualifiedName()));
+                "SELECT %1$s, %2$s "
+                    + "FROM %3$s h "
+                    + "JOIN %4$s t1 ON h.id1 = t1.gbifId "
+                    + "JOIN %4$s t2 ON h.id2 = t2.gbifId",
+                t1Columns, t2Columns, hiveTablePrefix + "_candidates", hiveTablePrefix + "_input"))
+        .write()
+        .format("parquet")
+        .mode(SaveMode.Overwrite)
+        .saveAsTable(hiveTablePrefix + "_candidates_processed");
 
     // Compare all candidate pairs and generate the relationships
-    Dataset<Row> relationships =
-        pairs.flatMap(
-            (FlatMapFunction<Row, Row>) this::relateRecords, Encoders.row(RELATIONSHIP_SCHEMA));
-    spark.sql("DROP TABLE IF EXISTS " + hiveTablePrefix + "_relationships PURGE");
-    relationships
+    spark
+        .sql(String.format("SELECT * FROM %s", hiveTablePrefix + "_candidates_processed"))
+        .flatMap((FlatMapFunction<Row, Row>) this::relateRecords, Encoders.row(RELATIONSHIP_SCHEMA))
         .write()
         .format("parquet")
         .mode(SaveMode.Overwrite)
         .saveAsTable(hiveTablePrefix + "_relationships");
-    return relationships;
+  }
+
+  /** Runs the record to record comparison */
+  private Iterator<Row> relateRecords(Row row) throws IOException {
+    Set<Row> relationships = new HashSet<>();
+
+    RowOccurrenceFeatures o1 = new RowOccurrenceFeatures(row, "t1_", "t1_media");
+    RowOccurrenceFeatures o2 = new RowOccurrenceFeatures(row, "t2_", "t2_media");
+    RelationshipAssertion<RowOccurrenceFeatures> assertions =
+        OccurrenceRelationships.generate(o1, o2);
+
+    // store any relationship bidirectionally matching RELATIONSHIP_SCHEMA
+    if (assertions != null) {
+      relationships.add(
+          RowFactory.create(
+              assertions.getOcc1().get("gbifId"),
+              assertions.getOcc2().get("gbifId"),
+              assertions.getJustificationAsDelimited(),
+              assertions.getOcc1().get("datasetKey"),
+              assertions.getOcc2().get("datasetKey"),
+              assertions.getOcc1().asJson(),
+              assertions.getOcc2().asJson()));
+
+      relationships.add(
+          RowFactory.create(
+              assertions.getOcc2().get("gbifId"),
+              assertions.getOcc1().get("gbifId"),
+              assertions.getJustificationAsDelimited(),
+              assertions.getOcc2().get("datasetKey"),
+              assertions.getOcc1().get("datasetKey"),
+              assertions.getOcc2().asJson(),
+              assertions.getOcc1().asJson()));
+    }
+    return relationships.iterator();
   }
 
   /** Partitions the relationships to match the target table layout and creates the HFiles. */
-  private void generateHFiles(Dataset<Row> relationships) throws IOException {
+  private void generateHFiles(SparkSession spark) throws IOException {
     // convert to HFiles, prepared with modulo salted keys
     JavaPairRDD<Tuple2<String, String>, String> sortedRelationships =
-        relationships
+        spark
+            .sql(String.format("SELECT * FROM %s", hiveTablePrefix + "_relationships"))
             .javaRDD()
             .flatMapToPair(
                 row -> {
@@ -341,7 +405,8 @@ public class Cluster implements Serializable {
           "Table {} truncated and reloaded in {}",
           hbaseTable,
           Duration.between(start, Instant.now()).toMillis());
-      removeTargetDir();
+
+      admin.majorCompact(table.getName()); // bring data locality
 
     } catch (Exception e) {
       throw new IOException(e);
@@ -349,21 +414,17 @@ public class Cluster implements Serializable {
   }
 
   /** Removes the target directory provided it is in the /tmp location */
-  private void removeTargetDir() throws IOException {
-    // defensive, cleaning only /tmp in hdfs (we assume people won't do /tmp/../...
+  private void removeTargetDir(FileSystem fileSystem) throws IOException {
+    // defensive, cleaning only /tmp in hdfs (we assume people won't do /tmp/../...)
     String regex = "/tmp/.+";
     if (targetDir.matches(regex)) {
-      FsShell shell = new FsShell(new Configuration());
-      try {
-        log.info(
-            "Deleting working directory {} which translates to [-rm -r -skipTrash {} ]",
-            targetDir,
-            targetDir);
-
-        shell.run(new String[] {"-rm", "-r", "-skipTrash", targetDir});
-      } catch (Exception e) {
-        throw new IOException("Unable to delete the working directory", e);
-      }
+      Path p = new Path(targetDir);
+      assert !p.toString().contains(".."); // defensive
+      log.info(
+          "Deleting working directory {} which translates to [-rm -r -skipTrash {} ]",
+          targetDir,
+          targetDir);
+      fileSystem.delete(p, true);
     } else {
       throw new IllegalArgumentIOException("Target directory must be within /tmp");
     }
@@ -376,6 +437,7 @@ public class Cluster implements Serializable {
     dropTable(spark, fileSystem, hiveTablePrefix + "_hash_counts");
     dropTable(spark, fileSystem, hiveTablePrefix + "_hashes_filtered");
     dropTable(spark, fileSystem, hiveTablePrefix + "_candidates");
+    dropTable(spark, fileSystem, hiveTablePrefix + "_candidates_processed");
     dropTable(spark, fileSystem, hiveTablePrefix + "_relationships");
   }
 
@@ -389,40 +451,6 @@ public class Cluster implements Serializable {
     Path p = new Path(hiveWarehousePath, table);
     assert !p.toString().contains(".."); // defensive
     fs.delete(p, true);
-  }
-
-  /** Runs the record to record comparison */
-  private Iterator<Row> relateRecords(Row row) throws IOException {
-    Set<Row> relationships = new HashSet<>();
-
-    RowOccurrenceFeatures o1 = new RowOccurrenceFeatures(row, "t1_", "t1_media");
-    RowOccurrenceFeatures o2 = new RowOccurrenceFeatures(row, "t2_", "t2_media");
-    RelationshipAssertion<RowOccurrenceFeatures> assertions =
-        OccurrenceRelationships.generate(o1, o2);
-
-    // store any relationship bidirectionally matching RELATIONSHIP_SCHEMA
-    if (assertions != null) {
-      relationships.add(
-          RowFactory.create(
-              assertions.getOcc1().get("gbifId"),
-              assertions.getOcc2().get("gbifId"),
-              assertions.getJustificationAsDelimited(),
-              assertions.getOcc1().get("datasetKey"),
-              assertions.getOcc2().get("datasetKey"),
-              assertions.getOcc1().asJson(),
-              assertions.getOcc2().asJson()));
-
-      relationships.add(
-          RowFactory.create(
-              assertions.getOcc2().get("gbifId"),
-              assertions.getOcc1().get("gbifId"),
-              assertions.getJustificationAsDelimited(),
-              assertions.getOcc2().get("datasetKey"),
-              assertions.getOcc1().get("datasetKey"),
-              assertions.getOcc2().asJson(),
-              assertions.getOcc1().asJson()));
-    }
-    return relationships.iterator();
   }
 
   /** Creates the Hadoop configuration suitable for HDFS and HBase use. */
