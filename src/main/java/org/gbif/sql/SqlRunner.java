@@ -52,6 +52,11 @@ public class SqlRunner {
         .enableHiveSupport()
         .config("spark.sql.catalog.iceberg.type", "hive")
         .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog")
+        // required for Iceberg's CALL procedure syntax (expire_snapshots, etc.), which is added
+        // by this extension rather than being part of Spark's own SQL grammar
+        .config(
+            "spark.sql.extensions",
+            "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
         .getOrCreate();
   }
 
