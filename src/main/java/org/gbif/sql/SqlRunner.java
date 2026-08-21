@@ -20,6 +20,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -33,12 +34,19 @@ import org.apache.spark.sql.SparkSession;
  * given, as a single script read from standard input, where statements are separated by semicolons
  * and lines starting with {@code --} are treated as comments. Intended for ad-hoc administrative
  * tasks (e.g. DDL) against the Hive/Iceberg catalogs used by the other jobs in this project.
+ *
+ * <p>Each command line argument is base64-decoded if possible, falling back to the literal value
+ * otherwise. This allows callers (e.g. YAML/Jinja-based job templates) to base64-encode statements
+ * to avoid escaping quotes, parentheses, and other special characters.
  */
 @Slf4j
 public class SqlRunner {
 
   public static void main(String[] args) throws IOException {
-    List<String> statements = args.length > 0 ? Arrays.asList(args) : readStatementsFromStdin();
+    List<String> statements =
+        args.length > 0
+            ? Arrays.stream(args).map(SqlRunner::decodeIfBase64).collect(Collectors.toList())
+            : readStatementsFromStdin();
 
     try (SparkSession spark = buildSparkSession()) {
       run(spark, statements);
@@ -68,6 +76,19 @@ public class SqlRunner {
       if (result.schema().fields().length > 0) {
         result.show(1000, false);
       }
+    }
+  }
+
+  /**
+   * Base64-decodes a string if it is valid base64, otherwise returns it unchanged. SQL statements
+   * are never valid base64 in practice (they contain spaces, parentheses, etc., which fall outside
+   * the base64 alphabet), so this is safe to apply unconditionally.
+   */
+  static String decodeIfBase64(String value) {
+    try {
+      return new String(Base64.getDecoder().decode(value), StandardCharsets.UTF_8);
+    } catch (IllegalArgumentException e) {
+      return value;
     }
   }
 

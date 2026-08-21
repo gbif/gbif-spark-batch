@@ -15,6 +15,7 @@ package org.gbif.sql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.util.Base64;
 import java.util.List;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
@@ -24,6 +25,15 @@ public class SqlRunnerTest {
 
   private static final SparkSession SPARK =
       SparkSession.builder().master("local[*]").appName("test").getOrCreate();
+
+  @Test
+  public void testDecodeIfBase64() {
+    String statement = "CALL iceberg.system.expire_snapshots(table => 'lab.occurrence')";
+    String encoded = Base64.getEncoder().encodeToString(statement.getBytes());
+
+    assertEquals(statement, SqlRunner.decodeIfBase64(encoded));
+    assertEquals(statement, SqlRunner.decodeIfBase64(statement));
+  }
 
   @Test
   public void testParseScript() {
