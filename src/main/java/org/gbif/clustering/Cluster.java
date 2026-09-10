@@ -76,7 +76,6 @@ public class Cluster implements Serializable {
   private String hbaseZK;
   private String targetDir;
   private int hashCountThreshold;
-  private String checklistKey;
   private static final StructType HASH_ROW_SCHEMA =
       DataTypes.createStructType(
           new StructField[] {
@@ -153,9 +152,9 @@ public class Cluster implements Serializable {
                     + "  ext_multimedia AS media "
                     + "FROM %1$s "
                     + "WHERE "
-                    + "  specieskey IS NOT NULL AND "
-                    + "  NOT array_contains(taxonomicissue, 'TAXON_MATCH_HIGHERRANK') ",
-                sourceTableQualifiedName(), checklistKey))
+                    + "  speciesKey IS NOT NULL AND "
+                    + "  NOT array_contains(taxonomicIssue, 'TAXON_MATCH_HIGHERRANK') ",
+                sourceTableQualifiedName()))
         .write()
         .format("parquet")
         .mode(SaveMode.Overwrite)
