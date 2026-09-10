@@ -59,7 +59,7 @@ pipeline {
     }
     stage('Build and push Docker images: gbif-spark-batch') {
       steps {
-        sh 'build/gbif-spark-batch-docker-build.sh ${RELEASE} ${VERSION}'
+        sh 'build/gbif-spark-batch-docker-build.sh ${RELEASE:-false} ${VERSION}'
       }
     }
   }
