@@ -76,7 +76,6 @@ public class Cluster implements Serializable {
   private String hbaseZK;
   private String targetDir;
   private int hashCountThreshold;
-  private String checklistKey;
   private static final StructType HASH_ROW_SCHEMA =
       DataTypes.createStructType(
           new StructField[] {
@@ -142,8 +141,8 @@ public class Cluster implements Serializable {
             String.format(
                 "SELECT"
                     + "  gbifId, datasetKey, basisOfRecord, "
-                    + "  classificationDetails['%2$s']['specieskey'] AS speciesKey, "
-                    + "  classificationDetails['%2$s']['taxonkey'] AS taxonKey, "
+                    + "  speciesKey, "
+                    + "  taxonKey, "
                     + "  scientificName, "
                     + "  typeStatus, "
                     + "  decimalLatitude, decimalLongitude, countryCode, "
@@ -153,10 +152,9 @@ public class Cluster implements Serializable {
                     + "  ext_multimedia AS media "
                     + "FROM %1$s "
                     + "WHERE "
-                    + "  classificationDetails['%2$s'] IS NOT NULL AND "
-                    + "  classificationDetails['%2$s']['specieskey'] IS NOT NULL AND "
-                    + "  NOT array_contains(taxonomicissue['%2$s'], 'TAXON_MATCH_HIGHERRANK') ",
-                sourceTableQualifiedName(), checklistKey))
+                    + "  speciesKey IS NOT NULL AND "
+                    + "  NOT array_contains(taxonomicIssue, 'TAXON_MATCH_HIGHERRANK') ",
+                sourceTableQualifiedName()))
         .write()
         .format("parquet")
         .mode(SaveMode.Overwrite)

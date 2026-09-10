@@ -60,8 +60,7 @@ class ArgsParser {
             .hbaseRegions(Integer.parseInt(properties.getProperty("hbaseRegions")))
             .hbaseZK(properties.getProperty("hbaseZK"))
             .targetDir(properties.getProperty("targetDir"))
-            .hashCountThreshold(Integer.parseInt(properties.getProperty("hashCountThreshold")))
-            .checklistKey(properties.getProperty("checklistKey"));
+            .hashCountThreshold(Integer.parseInt(properties.getProperty("hashCountThreshold")));
 
     log.info("Clustering started with configuration loaded from properties file: {}", builder);
     return builder.build();
