@@ -87,12 +87,12 @@ public class EbirdComparisonTool implements Serializable {
 
       for (String columnName : rawTable.columns()) {
         selectedColumns.add(
-            col(RAW_TABLE_ALIAS + "." + columnName).alias(RAW_TABLE_ALIAS + columnName));
+            col(RAW_TABLE_ALIAS + "." + columnName).alias(RAW_TABLE_ALIAS + "_" + columnName));
       }
 
       for (String columnName : prodTable.columns()) {
         selectedColumns.add(
-            col(PROD_TABLE_ALIAS + "." + columnName).alias(PROD_TABLE_ALIAS + columnName));
+            col(PROD_TABLE_ALIAS + "." + columnName).alias(PROD_TABLE_ALIAS + "_" + columnName));
       }
 
       selectedColumns.add(
