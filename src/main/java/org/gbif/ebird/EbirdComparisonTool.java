@@ -41,9 +41,10 @@ public class EbirdComparisonTool implements Serializable {
 
   private final String hiveDB;
   private final String sourceTable;
+  private final String csvFilePath;
 
   public static void main(String[] args) {
-    EbirdComparisonTool.builder().hiveDB(args[0]).sourceTable(args[1]).build().run();
+    EbirdComparisonTool.builder().hiveDB(args[0]).sourceTable(args[1]).csvFilePath(args[2]).build().run();
   }
 
   public void run() {
@@ -58,7 +59,19 @@ public class EbirdComparisonTool implements Serializable {
       spark.sql("use " + hiveDB);
       spark.sparkContext().conf().set("hive.exec.compress.output", "false");
 
-      Dataset<Row> rawTable = spark.table("hive." + hiveDB + "." + sourceTable);
+
+      Dataset<Row> rawTable;
+      if (csvFilePath != null && !csvFilePath.isEmpty()) {
+        rawTable = spark.read()
+          .option("header", "true")
+          .option("delimiter", "\t")
+          .option("inferSchema", "false")
+          .csv(csvFilePath);
+      } else {
+        rawTable = spark.table("hive." + hiveDB + "." + sourceTable);
+      }
+
+
       Dataset<Row> prodTable = spark.table("iceberg.prod_b.occurrence");
 
       String prodJoinColumn = "gbifid";
