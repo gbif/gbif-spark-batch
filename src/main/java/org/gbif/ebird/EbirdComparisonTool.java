@@ -54,7 +54,7 @@ public class EbirdComparisonTool implements Serializable {
             .config("spark.sql.catalog.iceberg.type", "hive")
             .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog")
             .getOrCreate()) {
-      spark.sql("use " + hiveDB);
+      spark.sql("use marcos");
       spark.sparkContext().conf().set("hive.exec.compress.output", "false");
 
       Dataset<Row> rawTable = spark.table("hive.marcos.ebird_2025_raw_occurrence");
