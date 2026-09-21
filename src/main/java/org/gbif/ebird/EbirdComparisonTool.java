@@ -13,24 +13,22 @@
  */
 package org.gbif.ebird;
 
-import java.io.File;
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
-
-import org.apache.spark.sql.Column;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
-import org.apache.spark.sql.SaveMode;
-import org.apache.spark.sql.SparkSession;
-
-import lombok.Builder;
-
 import static org.apache.spark.sql.functions.coalesce;
 import static org.apache.spark.sql.functions.col;
 import static org.apache.spark.sql.functions.lit;
 import static org.apache.spark.sql.functions.substring;
 import static org.apache.spark.sql.functions.when;
+
+import java.io.File;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
+import lombok.Builder;
+import org.apache.spark.sql.Column;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.SaveMode;
+import org.apache.spark.sql.SparkSession;
 
 @Builder(toBuilder = true)
 public class EbirdComparisonTool implements Serializable {
@@ -44,33 +42,38 @@ public class EbirdComparisonTool implements Serializable {
   private final String csvFilePath;
 
   public static void main(String[] args) {
-    EbirdComparisonTool.builder().hiveDB(args[0]).sourceTable(args[1]).csvFilePath(args[2]).build().run();
+    EbirdComparisonTool.builder()
+        .hiveDB(args[0])
+        .sourceTable(args[1])
+        .csvFilePath(args[2])
+        .build()
+        .run();
   }
 
   public void run() {
     try (SparkSession spark =
-           SparkSession.builder()
-             .appName("Ebird comparison tool")
-             .config("spark.sql.warehouse.dir", new File("spark-warehouse").getAbsolutePath())
-             .enableHiveSupport()
-             .config("spark.sql.catalog.iceberg.type", "hive")
-             .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog")
-             .getOrCreate()) {
+        SparkSession.builder()
+            .appName("Ebird comparison tool")
+            .config("spark.sql.warehouse.dir", new File("spark-warehouse").getAbsolutePath())
+            .enableHiveSupport()
+            .config("spark.sql.catalog.iceberg.type", "hive")
+            .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog")
+            .getOrCreate()) {
       spark.sql("use " + hiveDB);
       spark.sparkContext().conf().set("hive.exec.compress.output", "false");
 
-
       Dataset<Row> rawTable;
       if (csvFilePath != null && !csvFilePath.isEmpty()) {
-        rawTable = spark.read()
-          .option("header", "true")
-          .option("delimiter", "\t")
-          .option("inferSchema", "false")
-          .csv(csvFilePath);
+        rawTable =
+            spark
+                .read()
+                .option("header", "true")
+                .option("delimiter", "\t")
+                .option("inferSchema", "false")
+                .csv(csvFilePath);
       } else {
         rawTable = spark.table("hive." + hiveDB + "." + sourceTable);
       }
-
 
       Dataset<Row> prodTable = spark.table("iceberg.prod_b.occurrence");
 
@@ -79,45 +82,45 @@ public class EbirdComparisonTool implements Serializable {
       // join column in raw table
       Column baseColumn = col(RAW_TABLE_ALIAS + ".occurrenceid").cast("string");
       Column rawJoinColumn =
-        when(
-          baseColumn.startsWith(ID_PREFIX),
-          substring(baseColumn, ID_PREFIX.length() + 1, Integer.MAX_VALUE))
-          .otherwise(baseColumn);
+          when(
+                  baseColumn.startsWith(ID_PREFIX),
+                  substring(baseColumn, ID_PREFIX.length() + 1, Integer.MAX_VALUE))
+              .otherwise(baseColumn);
 
       Dataset<Row> joined =
-        rawTable
-          .alias(RAW_TABLE_ALIAS)
-          .join(
-            prodTable.alias(PROD_TABLE_ALIAS),
-            rawJoinColumn.equalTo(prodJoinColumn),
-            "full_outer");
+          rawTable
+              .alias(RAW_TABLE_ALIAS)
+              .join(
+                  prodTable.alias(PROD_TABLE_ALIAS),
+                  rawJoinColumn.equalTo(prodJoinColumn),
+                  "full_outer");
 
       List<Column> selectedColumns = new ArrayList<>();
       selectedColumns.add(
-        coalesce(
-          col(RAW_TABLE_ALIAS + "." + rawJoinColumn),
-          col(PROD_TABLE_ALIAS + "." + prodJoinColumn))
-          .alias("join_key"));
+          coalesce(
+                  col(RAW_TABLE_ALIAS + "." + rawJoinColumn),
+                  col(PROD_TABLE_ALIAS + "." + prodJoinColumn))
+              .alias("join_key"));
 
       for (String columnName : rawTable.columns()) {
         selectedColumns.add(
-          col(RAW_TABLE_ALIAS + "." + columnName).alias(RAW_TABLE_ALIAS + "_" + columnName));
+            col(RAW_TABLE_ALIAS + "." + columnName).alias(RAW_TABLE_ALIAS + "_" + columnName));
       }
 
       for (String columnName : prodTable.columns()) {
         selectedColumns.add(
-          col(PROD_TABLE_ALIAS + "." + columnName).alias(PROD_TABLE_ALIAS + "_" + columnName));
+            col(PROD_TABLE_ALIAS + "." + columnName).alias(PROD_TABLE_ALIAS + "_" + columnName));
       }
 
       selectedColumns.add(
-        when(
-          col(RAW_TABLE_ALIAS + "." + rawJoinColumn)
-            .isNotNull()
-            .and(col(PROD_TABLE_ALIAS + "." + prodJoinColumn).isNotNull()),
-          lit("MATCH"))
-          .when(col(RAW_TABLE_ALIAS + "." + rawJoinColumn).isNotNull(), lit("ONLY_RAW"))
-          .otherwise(lit("ONLY_PROD"))
-          .alias("match_status"));
+          when(
+                  col(RAW_TABLE_ALIAS + "." + rawJoinColumn)
+                      .isNotNull()
+                      .and(col(PROD_TABLE_ALIAS + "." + prodJoinColumn).isNotNull()),
+                  lit("MATCH"))
+              .when(col(RAW_TABLE_ALIAS + "." + rawJoinColumn).isNotNull(), lit("ONLY_RAW"))
+              .otherwise(lit("ONLY_PROD"))
+              .alias("match_status"));
 
       Dataset<Row> result = joined.select(selectedColumns.toArray(Column[]::new));
       result.write().mode(SaveMode.Overwrite).saveAsTable("ebird_2025_comparison");
