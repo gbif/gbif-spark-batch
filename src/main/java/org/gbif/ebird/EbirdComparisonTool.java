@@ -37,6 +37,7 @@ public class EbirdComparisonTool implements Serializable {
   private static final String ID_PREFIX = "URN:catalog:CLO:EBIRD:";
   private static final String RAW_TABLE_ALIAS = "raw_table";
   private static final String PROD_TABLE_ALIAS = "prod_table";
+  private static final String EBIRD_DATASET_KEY = "4fa7b334-ce0d-4e88-aaae-2e0c138d049e";
 
   private final String hiveDB;
   private final String sourceTable;
@@ -79,7 +80,10 @@ public class EbirdComparisonTool implements Serializable {
         rawTable = spark.table(sourceTable);
       }
 
-      Dataset<Row> prodTable = spark.table("iceberg.prod_b.occurrence");
+      Dataset<Row> prodTable =
+          spark
+              .table("iceberg.prod_b.occurrence")
+              .filter(col("datasetkey").equalTo(EBIRD_DATASET_KEY));
 
       Column rawOccId = col(RAW_TABLE_ALIAS + ".occurrenceid").cast("string");
       Column rawKey =
