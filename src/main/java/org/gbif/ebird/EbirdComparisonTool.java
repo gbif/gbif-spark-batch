@@ -23,6 +23,7 @@ import java.io.File;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import lombok.Builder;
 import org.apache.spark.sql.Column;
 import org.apache.spark.sql.Dataset;
@@ -45,12 +46,15 @@ public class EbirdComparisonTool implements Serializable {
     EbirdComparisonTool.builder()
         .hiveDB(args[0])
         .sourceTable(args[1])
-        .csvFilePath(args[2])
+        .csvFilePath(args.length > 2 ? args[2] : null)
         .build()
         .run();
   }
 
   public void run() {
+    Objects.requireNonNull(hiveDB, "hiveDB is null");
+    Objects.requireNonNull(sourceTable, "sourceTable is null");
+
     try (SparkSession spark =
         SparkSession.builder()
             .appName("Ebird comparison tool")
