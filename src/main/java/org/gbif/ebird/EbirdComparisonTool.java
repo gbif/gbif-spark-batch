@@ -81,48 +81,35 @@ public class EbirdComparisonTool implements Serializable {
 
       Dataset<Row> prodTable = spark.table("iceberg.prod_b.occurrence");
 
-      String prodJoinColumn = "gbifid";
-
-      // join column in raw table
-      Column baseColumn = col(RAW_TABLE_ALIAS + ".occurrenceid").cast("string");
-      Column rawJoinColumn =
+      Column rawOccId = col(RAW_TABLE_ALIAS + ".occurrenceid").cast("string");
+      Column rawKey =
           when(
-                  baseColumn.startsWith(ID_PREFIX),
-                  substring(baseColumn, ID_PREFIX.length() + 1, Integer.MAX_VALUE))
-              .otherwise(baseColumn);
+                  rawOccId.startsWith(ID_PREFIX),
+                  substring(rawOccId, ID_PREFIX.length() + 1, Integer.MAX_VALUE))
+              .otherwise(rawOccId);
+
+      Column prodKey = col(PROD_TABLE_ALIAS + ".gbifid");
 
       Dataset<Row> joined =
           rawTable
               .alias(RAW_TABLE_ALIAS)
-              .join(
-                  prodTable.alias(PROD_TABLE_ALIAS),
-                  rawJoinColumn.equalTo(prodJoinColumn),
-                  "full_outer");
+              .join(prodTable.alias(PROD_TABLE_ALIAS), rawKey.equalTo(prodKey), "full_outer");
 
       List<Column> selectedColumns = new ArrayList<>();
-      selectedColumns.add(
-          coalesce(
-                  col(RAW_TABLE_ALIAS + "." + rawJoinColumn),
-                  col(PROD_TABLE_ALIAS + "." + prodJoinColumn))
-              .alias("join_key"));
+      selectedColumns.add(coalesce(rawKey, prodKey).alias("join_key"));
 
       for (String columnName : rawTable.columns()) {
         selectedColumns.add(
             col(RAW_TABLE_ALIAS + "." + columnName).alias(RAW_TABLE_ALIAS + "_" + columnName));
       }
-
       for (String columnName : prodTable.columns()) {
         selectedColumns.add(
             col(PROD_TABLE_ALIAS + "." + columnName).alias(PROD_TABLE_ALIAS + "_" + columnName));
       }
 
       selectedColumns.add(
-          when(
-                  col(RAW_TABLE_ALIAS + "." + rawJoinColumn)
-                      .isNotNull()
-                      .and(col(PROD_TABLE_ALIAS + "." + prodJoinColumn).isNotNull()),
-                  lit("MATCH"))
-              .when(col(RAW_TABLE_ALIAS + "." + rawJoinColumn).isNotNull(), lit("ONLY_RAW"))
+          when(rawOccId.isNotNull().and(prodKey.isNotNull()), lit("MATCH"))
+              .when(rawOccId.isNotNull(), lit("ONLY_RAW"))
               .otherwise(lit("ONLY_PROD"))
               .alias("match_status"));
 
