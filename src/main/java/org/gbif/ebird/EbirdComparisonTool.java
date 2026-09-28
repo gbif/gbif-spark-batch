@@ -76,7 +76,7 @@ public class EbirdComparisonTool implements Serializable {
                 .option("inferSchema", "false")
                 .csv(csvFilePath);
       } else {
-        rawTable = spark.table("hive." + hiveDB + "." + sourceTable);
+        rawTable = spark.table(sourceTable);
       }
 
       Dataset<Row> prodTable = spark.table("iceberg.prod_b.occurrence");
