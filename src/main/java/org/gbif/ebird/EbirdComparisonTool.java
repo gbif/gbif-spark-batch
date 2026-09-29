@@ -72,6 +72,7 @@ public class EbirdComparisonTool implements Serializable {
 
       Dataset<Row> rawTable;
       if (csvFilePath != null && !csvFilePath.isEmpty()) {
+        spark.sparkContext().setJobGroup("read-raw", "Read raw eBird from CSV", false);
         rawTable =
             spark
                 .read()
@@ -80,9 +81,11 @@ public class EbirdComparisonTool implements Serializable {
                 .option("inferSchema", "false")
                 .csv(csvFilePath);
       } else {
+        spark.sparkContext().setJobGroup("read-raw", "Read raw eBird from table", false);
         rawTable = spark.table(sourceTable);
       }
 
+      spark.sparkContext().setJobGroup("read-prod", "Read eBird from prod table", false);
       Dataset<Row> prodEbird =
           spark
               .table("iceberg.prod_b.occurrence")
@@ -99,6 +102,7 @@ public class EbirdComparisonTool implements Serializable {
 
       Column prodKey = col(PROD_TABLE_ALIAS + ".gbifid");
 
+      spark.sparkContext().setJobGroup("join-write", "Join and save comparison table", false);
       Dataset<Row> joined =
           rawTable
               .alias(RAW_TABLE_ALIAS)
@@ -136,7 +140,6 @@ public class EbirdComparisonTool implements Serializable {
 
       Dataset<Row> result = joined.select(selectedColumns.toArray(Column[]::new));
       result.write().mode(SaveMode.Overwrite).saveAsTable(COMPARISON_TABLE);
-      result.show(false);
     }
   }
 }
