@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import lombok.Builder;
+import lombok.SneakyThrows;
 import org.apache.spark.sql.Column;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -38,6 +39,7 @@ public class EbirdComparisonTool implements Serializable {
   private static final String RAW_TABLE_ALIAS = "raw_table";
   private static final String PROD_TABLE_ALIAS = "prod_table";
   private static final String EBIRD_DATASET_KEY = "4fa7b334-ce0d-4e88-aaae-2e0c138d049e";
+  private static final String COMPARISON_TABLE = "ebird_2025_comparison";
 
   private final String hiveDB;
   private final String sourceTable;
@@ -52,6 +54,7 @@ public class EbirdComparisonTool implements Serializable {
         .run();
   }
 
+  @SneakyThrows
   public void run() {
     Objects.requireNonNull(hiveDB, "hiveDB is null");
     Objects.requireNonNull(sourceTable, "sourceTable is null");
@@ -80,10 +83,12 @@ public class EbirdComparisonTool implements Serializable {
         rawTable = spark.table(sourceTable);
       }
 
-      Dataset<Row> prodTable =
+      Dataset<Row> prodEbird =
           spark
               .table("iceberg.prod_b.occurrence")
               .filter(col("datasetkey").equalTo(EBIRD_DATASET_KEY));
+      Dataset<Row> prodEbirdVerbatim =
+          prodEbird.select(col("gbifid"), prodEbird.colRegex("`v_.*`"));
 
       Column rawOccId = col(RAW_TABLE_ALIAS + ".occurrenceid").cast("string");
       Column rawKey =
@@ -97,7 +102,8 @@ public class EbirdComparisonTool implements Serializable {
       Dataset<Row> joined =
           rawTable
               .alias(RAW_TABLE_ALIAS)
-              .join(prodTable.alias(PROD_TABLE_ALIAS), rawKey.equalTo(prodKey), "full_outer");
+              .join(
+                  prodEbirdVerbatim.alias(PROD_TABLE_ALIAS), rawKey.equalTo(prodKey), "full_outer");
 
       List<Column> selectedColumns = new ArrayList<>();
       selectedColumns.add(coalesce(rawKey, prodKey).alias("join_key"));
@@ -106,7 +112,7 @@ public class EbirdComparisonTool implements Serializable {
         selectedColumns.add(
             col(RAW_TABLE_ALIAS + "." + columnName).alias(RAW_TABLE_ALIAS + "_" + columnName));
       }
-      for (String columnName : prodTable.columns()) {
+      for (String columnName : prodEbirdVerbatim.columns()) {
         selectedColumns.add(
             col(PROD_TABLE_ALIAS + "." + columnName).alias(PROD_TABLE_ALIAS + "_" + columnName));
       }
@@ -117,8 +123,19 @@ public class EbirdComparisonTool implements Serializable {
               .otherwise(lit("ONLY_PROD"))
               .alias("match_status"));
 
+      spark.sql("DROP TABLE IF EXISTS " + COMPARISON_TABLE + " PURGE");
+
+      org.apache.hadoop.fs.Path path =
+          new org.apache.hadoop.fs.Path(
+              "/stackable/warehouse/" + hiveDB + ".db/" + COMPARISON_TABLE);
+      org.apache.hadoop.fs.FileSystem fs =
+          path.getFileSystem(spark.sparkContext().hadoopConfiguration());
+      if (fs.exists(path)) {
+        fs.delete(path, true);
+      }
+
       Dataset<Row> result = joined.select(selectedColumns.toArray(Column[]::new));
-      result.write().mode(SaveMode.Overwrite).saveAsTable("ebird_2025_comparison");
+      result.write().mode(SaveMode.Overwrite).saveAsTable(COMPARISON_TABLE);
       result.show(false);
     }
   }
