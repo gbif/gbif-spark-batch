@@ -100,7 +100,7 @@ public class EbirdComparisonTool implements Serializable {
                   substring(rawOccId, ID_PREFIX.length() + 1, Integer.MAX_VALUE))
               .otherwise(rawOccId);
 
-      Column prodKey = col(PROD_TABLE_ALIAS + ".gbifid");
+      Column prodKey = col(PROD_TABLE_ALIAS + ".v_occurrenceid");
 
       spark.sparkContext().setJobGroup("join-write", "Join and save comparison table", false);
       Dataset<Row> joined =
