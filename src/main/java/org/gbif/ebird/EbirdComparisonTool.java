@@ -102,7 +102,7 @@ public class EbirdComparisonTool implements Serializable {
 
       Column prodKey = col(PROD_TABLE_ALIAS + ".v_occurrenceid");
 
-      spark.sparkContext().setJobGroup("join-write", "Join and save comparison table", false);
+      spark.sparkContext().setJobGroup("join", "Join tables", false);
       Dataset<Row> joined =
           rawTable
               .alias(RAW_TABLE_ALIAS)
@@ -138,6 +138,7 @@ public class EbirdComparisonTool implements Serializable {
         fs.delete(path, true);
       }
 
+      spark.sparkContext().setJobGroup("write", "Save comparison table", false);
       Dataset<Row> result = joined.select(selectedColumns.toArray(Column[]::new));
       result.write().mode(SaveMode.Overwrite).saveAsTable(COMPARISON_TABLE);
     }
