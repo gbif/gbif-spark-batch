@@ -13,10 +13,8 @@
  */
 package org.gbif.ebird;
 
-import static org.apache.spark.sql.functions.coalesce;
 import static org.apache.spark.sql.functions.col;
 import static org.apache.spark.sql.functions.lit;
-import static org.apache.spark.sql.functions.substring;
 import static org.apache.spark.sql.functions.when;
 
 import java.io.File;
@@ -35,21 +33,23 @@ import org.apache.spark.sql.SparkSession;
 @Builder(toBuilder = true)
 public class EbirdComparisonTool implements Serializable {
 
-  private static final String ID_PREFIX = "URN:catalog:CLO:EBIRD:";
   private static final String RAW_TABLE_ALIAS = "raw_table";
   private static final String PROD_TABLE_ALIAS = "prod_table";
   private static final String EBIRD_DATASET_KEY = "4fa7b334-ce0d-4e88-aaae-2e0c138d049e";
-  private static final String COMPARISON_TABLE = "ebird_2025_comparison";
+  // TODO: make it a param
+  private static final String DEFAULT_DESTINATION_TABLE = "ebird_2025_comparison";
 
   private final String hiveDB;
   private final String sourceTable;
   private final String csvFilePath;
+  private final String destinationTable;
 
   public static void main(String[] args) {
     EbirdComparisonTool.builder()
         .hiveDB(args[0])
         .sourceTable(args[1])
-        .csvFilePath(args.length > 2 ? args[2] : null)
+        .destinationTable(args.length > 2 ? args[2] : DEFAULT_DESTINATION_TABLE)
+        .csvFilePath(args.length > 3 ? args[3] : null)
         .build()
         .run();
   }
@@ -93,14 +93,8 @@ public class EbirdComparisonTool implements Serializable {
       Dataset<Row> prodEbirdVerbatim =
           prodEbird.select(col("gbifid"), prodEbird.colRegex("`v_.*`"));
 
-      Column rawOccId = col(RAW_TABLE_ALIAS + ".occurrenceid").cast("string");
-      Column rawKey =
-          when(
-                  rawOccId.startsWith(ID_PREFIX),
-                  substring(rawOccId, ID_PREFIX.length() + 1, Integer.MAX_VALUE))
-              .otherwise(rawOccId);
-
       Column prodKey = col(PROD_TABLE_ALIAS + ".v_occurrenceid");
+      Column rawKey = col(RAW_TABLE_ALIAS + ".occurrenceid");
 
       spark.sparkContext().setJobGroup("join", "Join tables", false);
       Dataset<Row> joined =
@@ -110,8 +104,6 @@ public class EbirdComparisonTool implements Serializable {
                   prodEbirdVerbatim.alias(PROD_TABLE_ALIAS), rawKey.equalTo(prodKey), "full_outer");
 
       List<Column> selectedColumns = new ArrayList<>();
-      selectedColumns.add(coalesce(rawKey, prodKey).alias("join_key"));
-
       for (String columnName : rawTable.columns()) {
         selectedColumns.add(
             col(RAW_TABLE_ALIAS + "." + columnName).alias(RAW_TABLE_ALIAS + "_" + columnName));
@@ -122,16 +114,16 @@ public class EbirdComparisonTool implements Serializable {
       }
 
       selectedColumns.add(
-          when(rawOccId.isNotNull().and(prodKey.isNotNull()), lit("MATCH"))
-              .when(rawOccId.isNotNull(), lit("ONLY_RAW"))
+          when(rawKey.equalTo(prodKey), lit("MATCH"))
+              .when(rawKey.isNotNull(), lit("ONLY_RAW"))
               .otherwise(lit("ONLY_PROD"))
               .alias("match_status"));
 
-      spark.sql("DROP TABLE IF EXISTS " + COMPARISON_TABLE + " PURGE");
+      spark.sql("DROP TABLE IF EXISTS " + destinationTable + " PURGE");
 
       org.apache.hadoop.fs.Path path =
           new org.apache.hadoop.fs.Path(
-              "/stackable/warehouse/" + hiveDB + ".db/" + COMPARISON_TABLE);
+              "/stackable/warehouse/" + hiveDB + ".db/" + destinationTable);
       org.apache.hadoop.fs.FileSystem fs =
           path.getFileSystem(spark.sparkContext().hadoopConfiguration());
       if (fs.exists(path)) {
@@ -140,7 +132,7 @@ public class EbirdComparisonTool implements Serializable {
 
       spark.sparkContext().setJobGroup("write", "Save comparison table", false);
       Dataset<Row> result = joined.select(selectedColumns.toArray(Column[]::new));
-      result.write().mode(SaveMode.Overwrite).saveAsTable(COMPARISON_TABLE);
+      result.write().mode(SaveMode.Overwrite).saveAsTable(destinationTable);
     }
   }
 }
