@@ -56,6 +56,12 @@ public class DatasetExportComparisonTool implements Serializable {
   private final String datasetKey;
 
   public static void main(String[] args) {
+    if (args.length < 4) {
+      System.err.println(
+          "Usage: <hiveDB> <datasetKey> <sourceTable> <destinationTable> [csvFilePath]");
+      System.exit(2);
+    }
+
     DatasetExportComparisonTool.builder()
         .hiveDB(args[0])
         .datasetKey(args[1])

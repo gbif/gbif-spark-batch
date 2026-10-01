@@ -151,7 +151,7 @@ SELECT prod_gbifid, prod_v_occurrenceid FROM <dest> WHERE match_status = 'ONLY_P
 select export_taxonconceptid, prod_v_taxonconceptid from ebird_2025_v2_comparison where match_status = 'MATCH' and has_differences = true and array_contains(diff_columns, 'taxonconceptid');
 
 
-select export_taxonconceptid, prod_v_taxonconceptid, diff_columns from ebird_2025_v2_comparison where match_status = 'MATCH' and has_differences = true and contains(diff_columns, 'taxonconceptid') limit 5;
+select export_taxonconceptid, prod_v_taxonconceptid, diff_columns from ebird_2025_v2_comparison where match_status = 'MATCH' and has_differences = true and array_contains(diff_columns, 'taxonconceptid') limit 5;
 
 export_taxonconceptid |  prod_v_taxonconceptid   |                                  diff_columns
 -----------------------+--------------------------+--------------------------------------------------------------------------------
