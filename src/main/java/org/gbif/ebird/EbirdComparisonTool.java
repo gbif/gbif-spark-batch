@@ -20,6 +20,8 @@ import static org.apache.spark.sql.functions.lit;
 import static org.apache.spark.sql.functions.lower;
 import static org.apache.spark.sql.functions.regexp_replace;
 import static org.apache.spark.sql.functions.split;
+import static org.apache.spark.sql.functions.trim;
+import static org.apache.spark.sql.functions.upper;
 import static org.apache.spark.sql.functions.when;
 
 import java.io.File;
@@ -136,8 +138,8 @@ public class EbirdComparisonTool implements Serializable {
       List<Column> diffFlags = new ArrayList<>();
       for (String c : rawTable.columns()) {
         if (prodCols.contains("v_" + c.toLowerCase())) {
-          Column r = normalize(col(RAW_TABLE_ALIAS + "." + c));
-          Column p = normalize(col(PROD_TABLE_ALIAS + ".v_" + c));
+          Column r = nullify(normalize(col(RAW_TABLE_ALIAS + "." + c)));
+          Column p = nullify(normalize(col(PROD_TABLE_ALIAS + ".v_" + c)));
           diffFlags.add(when(r.eqNullSafe(p), lit(null)).otherwise(lit(c)));
         }
       }
@@ -242,5 +244,10 @@ public class EbirdComparisonTool implements Serializable {
   // lower-case and drop whitespace, underscores and pipes
   private static Column normalize(Column c) {
     return regexp_replace(lower(c), "[\\s_|]+", "");
+  }
+
+  // empty, blank or the literal "NULL" all become a real null
+  private static Column nullify(Column c) {
+    return when(upper(trim(c)).isin("", "NULL"), lit(null)).otherwise(c);
   }
 }
