@@ -17,6 +17,8 @@ import static org.apache.spark.sql.functions.col;
 import static org.apache.spark.sql.functions.concat_ws;
 import static org.apache.spark.sql.functions.explode;
 import static org.apache.spark.sql.functions.lit;
+import static org.apache.spark.sql.functions.lower;
+import static org.apache.spark.sql.functions.regexp_replace;
 import static org.apache.spark.sql.functions.split;
 import static org.apache.spark.sql.functions.when;
 
@@ -134,8 +136,8 @@ public class EbirdComparisonTool implements Serializable {
       List<Column> diffFlags = new ArrayList<>();
       for (String c : rawTable.columns()) {
         if (prodCols.contains("v_" + c.toLowerCase())) {
-          Column r = col(RAW_TABLE_ALIAS + "." + c);
-          Column p = col(PROD_TABLE_ALIAS + ".v_" + c);
+          Column r = normalize(col(RAW_TABLE_ALIAS + "." + c));
+          Column p = normalize(col(PROD_TABLE_ALIAS + ".v_" + c));
           diffFlags.add(when(r.eqNullSafe(p), lit(null)).otherwise(lit(c)));
         }
       }
@@ -209,19 +211,11 @@ public class EbirdComparisonTool implements Serializable {
         spark,
         written.filter("match_status = 'ONLY_PROD'").selectExpr(toArray(prodCols)),
         "_only_prod");
-
-    // In both, but with differing fields: keep both sides plus the diff info
-    export(
-        spark,
-        written.filter("match_status = 'MATCH' AND has_differences = true").drop("match_status"),
-        "_field_differences");
   }
 
   private void export(SparkSession spark, Dataset<Row> df, String path) {
     dropTable(spark, destinationTable + path);
-
-    df.repartition(1)
-        .write()
+    df.write()
         .format("parquet")
         .option("compression", "snappy") // snappy is the most widely readable
         .mode(SaveMode.Overwrite)
@@ -243,5 +237,10 @@ public class EbirdComparisonTool implements Serializable {
     if (fs.exists(path)) {
       fs.delete(path, true);
     }
+  }
+
+  // lower-case and drop whitespace, underscores and pipes
+  private static Column normalize(Column c) {
+    return regexp_replace(lower(c), "[\\s_|]+", "");
   }
 }
