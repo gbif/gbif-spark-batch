@@ -172,6 +172,7 @@ public class EbirdComparisonTool implements Serializable {
                   RowFactory.create("PROD_TOTAL", prodCount)),
               perStatus.schema());
 
+      spark.sparkContext().setJobGroup("write", "Write stats", false);
       perStatus
           .union(totals)
           .write()
@@ -181,6 +182,7 @@ public class EbirdComparisonTool implements Serializable {
 
       // diffs
       dropTable(spark, destinationTable + "_column_diffs");
+      spark.sparkContext().setJobGroup("write", "Write diffs", false);
       written
           .filter("has_differences = true")
           .select(explode(split(col("diff_columns"), ",")).alias("column"))
@@ -191,6 +193,7 @@ public class EbirdComparisonTool implements Serializable {
           .mode(SaveMode.Overwrite)
           .saveAsTable(destinationTable + "_column_diffs");
 
+      spark.sparkContext().setJobGroup("write", "Write mismatches", false);
       exportMismatches(spark, written);
     }
   }
