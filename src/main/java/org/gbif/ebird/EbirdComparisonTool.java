@@ -201,36 +201,7 @@ public class EbirdComparisonTool implements Serializable {
           .format("parquet")
           .mode(SaveMode.Overwrite)
           .saveAsTable(destinationTable + "_column_diffs");
-
-      //      spark.sparkContext().setJobGroup("write", "Write mismatches", false);
-      //      exportMismatches(spark, written);
     }
-  }
-
-  private void exportMismatches(SparkSession spark, Dataset<Row> written) {
-    List<String> prodCols =
-        Arrays.stream(written.columns())
-            .filter(c -> c.startsWith(PROD_TABLE_ALIAS + "_"))
-            .collect(Collectors.toList());
-
-    // In prod but missing in the raw file: only the prod side is meaningful
-    export(
-        spark,
-        written.filter("match_status = 'ONLY_PROD'").selectExpr(toArray(prodCols)),
-        "_only_prod");
-  }
-
-  private void export(SparkSession spark, Dataset<Row> df, String path) {
-    dropTable(spark, destinationTable + path);
-    df.write()
-        .format("parquet")
-        .option("compression", "snappy") // snappy is the most widely readable
-        .mode(SaveMode.Overwrite)
-        .saveAsTable(destinationTable + path);
-  }
-
-  private static String[] toArray(List<String> l) {
-    return l.toArray(new String[0]);
   }
 
   @SneakyThrows
