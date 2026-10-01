@@ -148,7 +148,19 @@ SELECT export_occurrenceid FROM <dest> WHERE match_status = 'ONLY_EXPORT';
 SELECT prod_gbifid, prod_v_occurrenceid FROM <dest> WHERE match_status = 'ONLY_PROD';
 
 -- difference between 2 columns
-select export_taxonconceptid, prod_v_taxonconceptid from ebird_2025_v2_comparison where match_status = 'MATCH' and has_differences = true and array_contains(diff_columns, 'taxonconceptid');;
+select export_taxonconceptid, prod_v_taxonconceptid from ebird_2025_v2_comparison where match_status = 'MATCH' and has_differences = true and array_contains(diff_columns, 'taxonconceptid');
+
+
+select export_taxonconceptid, prod_v_taxonconceptid, diff_columns from ebird_2025_v2_comparison where match_status = 'MATCH' and has_differences = true and contains(diff_columns, 'taxonconceptid') limit 5;
+
+export_taxonconceptid |  prod_v_taxonconceptid   |                                  diff_columns
+-----------------------+--------------------------+--------------------------------------------------------------------------------
+ avibase-D77E4B41      | avibase-avibase-D77E4B41 | [eventid, taxonconceptid, genericname, taxonrank, taxonomicstatus]
+ avibase-0783A7EA      | avibase-avibase-0783A7EA | [eventid, taxonconceptid, genericname, taxonrank, taxonomicstatus]
+ avibase-4E74AE22      | avibase-avibase-4E74AE22 | [eventid, taxonconceptid, genericname, taxonrank, taxonomicstatus]
+ avibase-B745D852      | avibase-avibase-B745D852 | [eventid, taxonconceptid, genericname, taxonrank, taxonomicstatus]
+ avibase-23863F65      | avibase-avibase-23863F65 | [eventid, recordedby, taxonconceptid, genericname, taxonrank, taxonomicstatus]
+
 ```
 
 ## Sharing a subset of the results
