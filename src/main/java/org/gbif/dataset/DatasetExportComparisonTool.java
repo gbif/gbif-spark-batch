@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.gbif.ebird;
+package org.gbif.dataset;
 
 import static org.apache.spark.sql.functions.col;
 import static org.apache.spark.sql.functions.concat_ws;
@@ -43,24 +43,26 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.storage.StorageLevel;
 
 @Builder(toBuilder = true)
-public class EbirdComparisonTool implements Serializable {
+public class DatasetExportComparisonTool implements Serializable {
 
-  private static final String RAW_TABLE_ALIAS = "raw_table";
-  private static final String PROD_TABLE_ALIAS = "prod_table";
-  private static final String EBIRD_DATASET_KEY = "4fa7b334-ce0d-4e88-aaae-2e0c138d049e";
-  private static final String DEFAULT_DESTINATION_TABLE = "ebird_2025_comparison";
+  private static final String EXPORT_TABLE_ALIAS = "export";
+  private static final String PROD_TABLE_ALIAS = "prod";
+  private static final String DEFAULT_DESTINATION_TABLE = "%s_comparison";
 
   private final String hiveDB;
   private final String sourceTable;
   private final String csvFilePath;
   private final String destinationTable;
+  private final String datasetKey;
 
   public static void main(String[] args) {
-    EbirdComparisonTool.builder()
+    DatasetExportComparisonTool.builder()
         .hiveDB(args[0])
-        .sourceTable(args[1])
-        .destinationTable(args.length > 2 ? args[2] : DEFAULT_DESTINATION_TABLE)
-        .csvFilePath(args.length > 3 ? args[3] : null)
+        .datasetKey(args[1])
+        .sourceTable(args[2])
+        .destinationTable(
+            args.length > 3 ? args[3] : String.format(DEFAULT_DESTINATION_TABLE, args[1]))
+        .csvFilePath(args.length > 4 ? args[4] : null)
         .build()
         .run();
   }
@@ -72,7 +74,7 @@ public class EbirdComparisonTool implements Serializable {
 
     try (SparkSession spark =
         SparkSession.builder()
-            .appName("Ebird comparison tool")
+            .appName("Dataset export comparison tool")
             .config("spark.sql.warehouse.dir", new File("spark-warehouse").getAbsolutePath())
             .enableHiveSupport()
             .config("spark.sql.catalog.iceberg.type", "hive")
@@ -81,10 +83,10 @@ public class EbirdComparisonTool implements Serializable {
       spark.sql("use " + hiveDB);
       spark.sparkContext().conf().set("hive.exec.compress.output", "false");
 
-      Dataset<Row> rawTable;
+      Dataset<Row> exportTable;
       if (csvFilePath != null && !csvFilePath.isEmpty()) {
-        spark.sparkContext().setJobGroup("read-raw", "Read raw eBird from CSV", false);
-        rawTable =
+        spark.sparkContext().setJobGroup("read-export", "Read export from CSV", false);
+        exportTable =
             spark
                 .read()
                 .option("header", "true")
@@ -92,63 +94,64 @@ public class EbirdComparisonTool implements Serializable {
                 .option("inferSchema", "false")
                 .csv(csvFilePath);
       } else {
-        spark.sparkContext().setJobGroup("read-raw", "Read raw eBird from table", false);
-        rawTable = spark.table(sourceTable);
+        spark.sparkContext().setJobGroup("read-export", "Read export from table", false);
+        exportTable = spark.table(sourceTable);
       }
 
-      spark.sparkContext().setJobGroup("read-prod", "Read eBird from prod table", false);
-      Dataset<Row> prodEbird =
-          spark
-              .table("iceberg.prod_b.occurrence")
-              .filter(col("datasetkey").equalTo(EBIRD_DATASET_KEY));
-      Dataset<Row> prodEbirdVerbatim =
-          prodEbird.select(col("gbifid"), prodEbird.colRegex("`v_.*`"));
+      spark.sparkContext().setJobGroup("read-prod", "Read dataset from prod table", false);
+      Dataset<Row> prodDataset =
+          spark.table("iceberg.prod_b.occurrence").filter(col("datasetkey").equalTo(datasetKey));
+      Dataset<Row> prodDatasetVerbatim =
+          prodDataset.select(col("gbifid"), prodDataset.colRegex("`v_.*`"));
 
       // stats
-      rawTable = rawTable.persist(StorageLevel.DISK_ONLY());
-      long rawCount = rawTable.count();
-      long prodCount = prodEbird.count();
+      exportTable = exportTable.persist(StorageLevel.DISK_ONLY());
+      long exportCount = exportTable.count();
+      long prodCount = prodDataset.count();
 
       Column prodKey = col(PROD_TABLE_ALIAS + ".v_occurrenceid");
-      Column rawKey = col(RAW_TABLE_ALIAS + ".occurrenceid");
+      Column exportKey = col(EXPORT_TABLE_ALIAS + ".occurrenceid");
 
       spark.sparkContext().setJobGroup("join", "Join tables", false);
       Dataset<Row> joined =
-          rawTable
-              .alias(RAW_TABLE_ALIAS)
+          exportTable
+              .alias(EXPORT_TABLE_ALIAS)
               .join(
-                  prodEbirdVerbatim.alias(PROD_TABLE_ALIAS), rawKey.equalTo(prodKey), "full_outer");
+                  prodDatasetVerbatim.alias(PROD_TABLE_ALIAS),
+                  exportKey.equalTo(prodKey),
+                  "full_outer");
 
       List<Column> selectedColumns = new ArrayList<>();
-      for (String columnName : rawTable.columns()) {
+      for (String columnName : exportTable.columns()) {
         selectedColumns.add(
-            col(RAW_TABLE_ALIAS + "." + columnName).alias(RAW_TABLE_ALIAS + "_" + columnName));
+            col(EXPORT_TABLE_ALIAS + "." + columnName)
+                .alias(EXPORT_TABLE_ALIAS + "_" + columnName));
       }
-      for (String columnName : prodEbirdVerbatim.columns()) {
+      for (String columnName : prodDatasetVerbatim.columns()) {
         selectedColumns.add(
             col(PROD_TABLE_ALIAS + "." + columnName).alias(PROD_TABLE_ALIAS + "_" + columnName));
       }
 
       // diffs
       Set<String> prodCols =
-          Arrays.stream(prodEbirdVerbatim.columns())
+          Arrays.stream(prodDatasetVerbatim.columns())
               .map(String::toLowerCase)
               .collect(Collectors.toSet());
 
       List<Column> diffFlags = new ArrayList<>();
-      for (String c : rawTable.columns()) {
+      for (String c : exportTable.columns()) {
         if (prodCols.contains("v_" + c.toLowerCase())) {
-          Column r = nullify(normalize(col(RAW_TABLE_ALIAS + "." + c)));
+          Column r = nullify(normalize(col(EXPORT_TABLE_ALIAS + "." + c)));
           Column p = nullify(normalize(col(PROD_TABLE_ALIAS + ".v_" + c)));
           diffFlags.add(when(r.eqNullSafe(p), lit(null)).otherwise(lit(c)));
         }
       }
       Column diffColumns = concat_ws(",", diffFlags.toArray(Column[]::new));
-      Column matched = rawKey.equalTo(prodKey);
+      Column matched = exportKey.equalTo(prodKey);
 
       selectedColumns.add(
           when(matched, lit("MATCH"))
-              .when(rawKey.isNotNull(), lit("ONLY_RAW"))
+              .when(exportKey.isNotNull(), lit("ONLY_EXPORT"))
               .otherwise(lit("ONLY_PROD"))
               .alias("match_status"));
       selectedColumns.add(when(matched, diffColumns).alias("diff_columns"));
@@ -177,7 +180,7 @@ public class EbirdComparisonTool implements Serializable {
       Dataset<Row> totals =
           spark.createDataFrame(
               Arrays.asList(
-                  RowFactory.create("RAW_TOTAL", rawCount),
+                  RowFactory.create("EXPORT_TOTAL", exportCount),
                   RowFactory.create("PROD_TOTAL", prodCount)),
               perStatus.schema());
 
