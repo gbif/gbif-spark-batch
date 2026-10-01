@@ -162,7 +162,12 @@ public class EbirdComparisonTool implements Serializable {
               .withColumn(
                   "has_differences",
                   when(col("diff_columns").isNotNull(), col("diff_columns").notEqual("")));
-      result.write().format("parquet").mode(SaveMode.Overwrite).saveAsTable(destinationTable);
+      result
+          .write()
+          .format("parquet")
+          .partitionBy("match_status")
+          .mode(SaveMode.Overwrite)
+          .saveAsTable(destinationTable);
 
       // stats
       Dataset<Row> written = spark.table(destinationTable);
@@ -197,8 +202,8 @@ public class EbirdComparisonTool implements Serializable {
           .mode(SaveMode.Overwrite)
           .saveAsTable(destinationTable + "_column_diffs");
 
-      spark.sparkContext().setJobGroup("write", "Write mismatches", false);
-      exportMismatches(spark, written);
+      //      spark.sparkContext().setJobGroup("write", "Write mismatches", false);
+      //      exportMismatches(spark, written);
     }
   }
 
