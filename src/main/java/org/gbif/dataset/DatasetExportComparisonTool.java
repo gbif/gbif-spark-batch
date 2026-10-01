@@ -13,13 +13,14 @@
  */
 package org.gbif.dataset;
 
+import static org.apache.spark.sql.functions.array;
+import static org.apache.spark.sql.functions.array_compact;
 import static org.apache.spark.sql.functions.col;
-import static org.apache.spark.sql.functions.concat_ws;
 import static org.apache.spark.sql.functions.explode;
 import static org.apache.spark.sql.functions.lit;
 import static org.apache.spark.sql.functions.lower;
 import static org.apache.spark.sql.functions.regexp_replace;
-import static org.apache.spark.sql.functions.split;
+import static org.apache.spark.sql.functions.size;
 import static org.apache.spark.sql.functions.trim;
 import static org.apache.spark.sql.functions.upper;
 import static org.apache.spark.sql.functions.when;
@@ -47,7 +48,6 @@ public class DatasetExportComparisonTool implements Serializable {
 
   private static final String EXPORT_TABLE_ALIAS = "export";
   private static final String PROD_TABLE_ALIAS = "prod";
-  private static final String DEFAULT_DESTINATION_TABLE = "%s_comparison";
 
   private final String hiveDB;
   private final String sourceTable;
@@ -60,8 +60,7 @@ public class DatasetExportComparisonTool implements Serializable {
         .hiveDB(args[0])
         .datasetKey(args[1])
         .sourceTable(args[2])
-        .destinationTable(
-            args.length > 3 ? args[3] : String.format(DEFAULT_DESTINATION_TABLE, args[1]))
+        .destinationTable(args[3])
         .csvFilePath(args.length > 4 ? args[4] : null)
         .build()
         .run();
@@ -146,7 +145,7 @@ public class DatasetExportComparisonTool implements Serializable {
           diffFlags.add(when(r.eqNullSafe(p), lit(null)).otherwise(lit(c)));
         }
       }
-      Column diffColumns = concat_ws(",", diffFlags.toArray(Column[]::new));
+      Column diffArray = array_compact(array(diffFlags.toArray(Column[]::new)));
       Column matched = exportKey.equalTo(prodKey);
 
       selectedColumns.add(
@@ -154,7 +153,7 @@ public class DatasetExportComparisonTool implements Serializable {
               .when(exportKey.isNotNull(), lit("ONLY_EXPORT"))
               .otherwise(lit("ONLY_PROD"))
               .alias("match_status"));
-      selectedColumns.add(when(matched, diffColumns).alias("diff_columns"));
+      selectedColumns.add(when(matched, diffArray).alias("diff_columns"));
 
       dropTable(spark, destinationTable);
 
@@ -164,7 +163,7 @@ public class DatasetExportComparisonTool implements Serializable {
               .select(selectedColumns.toArray(Column[]::new))
               .withColumn(
                   "has_differences",
-                  when(col("diff_columns").isNotNull(), col("diff_columns").notEqual("")));
+                  when(col("diff_columns").isNotNull(), size(col("diff_columns")).gt(0)));
       result
           .write()
           .format("parquet")
@@ -197,7 +196,7 @@ public class DatasetExportComparisonTool implements Serializable {
       spark.sparkContext().setJobGroup("write", "Write diffs", false);
       written
           .filter("has_differences = true")
-          .select(explode(split(col("diff_columns"), ",")).alias("column"))
+          .select(explode(col("diff_columns")).alias("column"))
           .groupBy("column")
           .count()
           .write()
