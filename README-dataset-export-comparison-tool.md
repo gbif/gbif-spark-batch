@@ -135,33 +135,33 @@ A status without rows does not appear. If the keys are unique, `MATCH + ONLY_EXP
 
 One row per column that differs in at least one `MATCH` record. Columns that never differ do not appear.
 
-| Column              | Type   | Content |
-|---------------------|--------|---------|
-| `column`            | string | Name of the compared column (the export name, e.g. `locality`). |
-| `count`             | bigint | Number of `MATCH` records where the column differs. |
-| `null_to_value`     | bigint | Of those, records where production was null and the export has a value. |
-| `value_to_null`     | bigint | Of those, records where production had a value and the export is null. |
-| `value_changed`     | bigint | Of those, records where both have a value and the values differ. |
-| `pct_null_to_value` | double | `null_to_value` as a percentage of `count`. |
-| `pct_value_to_null` | double | `value_to_null` as a percentage of `count`. |
-| `pct_value_changed` | double | `value_changed` as a percentage of `count`. |
-| `pct_of_matched`    | double | `count` as a percentage of all `MATCH` records (the `MATCH` row of `<dest>_stats`). |
+| Column                 | Type   | Content |
+|------------------------|--------|---------|
+| `column`               | string | Name of the compared column (the export name, e.g. `locality`). |
+| `count`                | bigint | Number of `MATCH` records where the column differs. |
+| `null_to_value`        | bigint | Of those, records where production was null and the export has a value. |
+| `value_to_null`        | bigint | Of those, records where production had a value and the export is null. |
+| `value_changed`        | bigint | Of those, records where both have a value and the values differ. |
+| `pct_null_to_value`    | double | `null_to_value` as a percentage of `count`. |
+| `pct_value_to_null`    | double | `value_to_null` as a percentage of `count`. |
+| `pct_value_changed`    | double | `value_changed` as a percentage of `count`. |
+| `pct_of_total_matched` | double | `count` as a percentage of all `MATCH` records (the `MATCH` row of `<dest>_stats`). |
 
 For every row, `null_to_value + value_to_null + value_changed = count`, and the three `pct_*` columns of the change types add up to about 100 (they are rounded to 2 decimals).
 
 Example (illustrative values; here the total of matched records is 1,500,000,000):
 
-| column           | count      | null_to_value | value_to_null | value_changed | pct_null_to_value | pct_value_to_null | pct_value_changed | pct_of_matched |
-|------------------|------------|---------------|---------------|---------------|-------------------|-------------------|-------------------|----------------|
-| `taxonconceptid` | 1417196599 | 0             | 0             | 1417196599    | 0.0               | 0.0               | 100.0             | 94.48          |
-| `scientificname` | 14608737   | 0             | 0             | 14608737      | 0.0               | 0.0               | 100.0             | 0.97           |
-| `taxonrank`      | 97460      | 90000         | 0             | 7460          | 92.35             | 0.0               | 7.65              | 0.65           |
+| column           | count      | null_to_value | value_to_null | value_changed | pct_null_to_value | pct_value_to_null | pct_value_changed | pct_of_total_matched |
+|------------------|------------|---------------|---------------|---------------|-------------------|-------------------|-------------------|----------------------|
+| `taxonconceptid` | 1417196599 | 0             | 0             | 1417196599    | 0.0               | 0.0               | 100.0             | 94.48                |
+| `scientificname` | 14608737   | 0             | 0             | 14608737      | 0.0               | 0.0               | 100.0             | 0.97                 |
+| `taxonrank`      | 97460      | 90000         | 0             | 7460          | 92.35             | 0.0               | 7.65              | 0.65                 |
 
 How to read it:
 
 - The `pct_null_to_value`, `pct_value_to_null` and `pct_value_changed` columns tell you what kind of change dominates **within a column**. In the example, `taxonrank` is mostly a field that was empty in production and has a value in the export.
-- `pct_of_matched` tells you how **widespread** the difference is across the matched records. In the example, `taxonconceptid` differs in almost every matched record, while `taxonrank` differs in less than 1%.
-- A record with several differing fields counts once per field, so the `count` values (and the `pct_of_matched` values) are not a number of records and do not add up across rows. Use `<dest>_stats` and `has_differences` for record totals.
+- `pct_of_total_matched` tells you how **widespread** the difference is across the matched records. In the example, `taxonconceptid` differs in almost every matched record, while `taxonrank` differs in less than 1%.
+- A record with several differing fields counts once per field, so the `count` values (and the `pct_of_total_matched` values) are not a number of records and do not add up across rows. Use `<dest>_stats` and `has_differences` for record totals.
 - Small percentages may show as `0.0` because of the rounding to 2 decimals.
 
 ## Querying the results
@@ -180,10 +180,10 @@ WHERE null_to_value > 0
 ORDER BY null_to_value DESC;
 
 -- fields whose values changed in more than 1% of the matched records
-SELECT column, value_changed, pct_of_matched
+SELECT column, value_changed, pct_of_total_matched
 FROM <dest>_column_diffs
-WHERE pct_of_matched > 1
-ORDER BY pct_of_matched DESC;
+WHERE pct_of_total_matched > 1
+ORDER BY pct_of_total_matched DESC;
 
 -- matched records with differences, and the fields involved
 SELECT export_occurrenceid, prod_gbifid, diff_columns
@@ -236,7 +236,7 @@ To find the table location in Spark use `DESCRIBE FORMATTED <dest>`, and in Trin
 
 - **Results are replaced on every run.** The four tables (and their directories under `/stackable/warehouse/<hiveDB>.db/`) are dropped at the start. Copy out anything you need to keep.
 - **Duplicate keys.** If `occurrenceid` is repeated on either side, the join multiplies rows. Compare the totals as described under `<dest>_stats` to detect it.
-- **Null keys.** A row of the export with a null `occurrenceid` never matches and is classified as `ONLY_PROD`.
+- **Null keys.** A row of the export with a null `occurrenceid` never matches and is classified as `ONLY_EXPORT`.
 - **Only same-name columns are compared.** Export column `x` is compared with `v_x`.
 - **Everything is a string when reading from CSV.** With a Hive table, the comparison uses whatever types the table has.
 - **Change types assume production is the old value.** If you read the comparison the other way around, `null_to_value` and `value_to_null` swap meaning.
