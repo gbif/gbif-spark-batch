@@ -15,12 +15,16 @@ package org.gbif.dataset;
 
 import static org.apache.spark.sql.functions.array;
 import static org.apache.spark.sql.functions.array_compact;
+import static org.apache.spark.sql.functions.array_contains;
 import static org.apache.spark.sql.functions.col;
+import static org.apache.spark.sql.functions.count;
 import static org.apache.spark.sql.functions.explode;
 import static org.apache.spark.sql.functions.lit;
 import static org.apache.spark.sql.functions.lower;
 import static org.apache.spark.sql.functions.regexp_replace;
+import static org.apache.spark.sql.functions.round;
 import static org.apache.spark.sql.functions.size;
+import static org.apache.spark.sql.functions.struct;
 import static org.apache.spark.sql.functions.trim;
 import static org.apache.spark.sql.functions.upper;
 import static org.apache.spark.sql.functions.when;
@@ -198,13 +202,56 @@ public class DatasetExportComparisonTool implements Serializable {
           .saveAsTable(destinationTable + "_stats");
 
       // diffs
+      Column diffCols = col("diff_columns"); // array<string>
+
+      List<Column> changeEntries = new ArrayList<>();
+      for (String c : exportTable.columns()) {
+        if (prodCols.contains("v_" + c.toLowerCase())) {
+          Column e = nullify(normalize(col(EXPORT_TABLE_ALIAS + "_" + c)));
+          Column p = nullify(normalize(col(PROD_TABLE_ALIAS + "_v_" + c)));
+          Column changeType =
+              when(p.isNull(), lit("NULL_TO_VALUE"))
+                  .when(e.isNull(), lit("VALUE_TO_NULL"))
+                  .otherwise(lit("VALUE_CHANGED"));
+          changeEntries.add(
+              when(
+                  array_contains(diffCols, c),
+                  struct(lit(c).alias("column"), changeType.alias("change_type"))));
+        }
+      }
+
+      List<Row> matchedRows =
+          spark
+              .table(destinationTable + "_stats")
+              .filter("match_status = 'MATCH'")
+              .select("count")
+              .collectAsList();
+      long totalMatched = matchedRows.isEmpty() ? 0L : matchedRows.get(0).getLong(0);
+
       dropTable(spark, destinationTable + "_column_diffs");
       spark.sparkContext().setJobGroup("write", "Write diffs", false);
       written
-          .filter("has_differences = true")
-          .select(explode(col("diff_columns")).alias("column"))
+          .filter("match_status = 'MATCH' AND has_differences = true")
+          .select(explode(array_compact(array(changeEntries.toArray(Column[]::new)))).alias("d"))
+          .select("d.column", "d.change_type")
           .groupBy("column")
-          .count()
+          .agg(
+              count(lit(1)).alias("count"),
+              count(when(col("change_type").equalTo("NULL_TO_VALUE"), 1)).alias("null_to_value"),
+              count(when(col("change_type").equalTo("VALUE_TO_NULL"), 1)).alias("value_to_null"),
+              count(when(col("change_type").equalTo("VALUE_CHANGED"), 1)).alias("value_changed"))
+          .withColumn(
+              "pct_null_to_value",
+              round(col("null_to_value").multiply(100.0).divide(col("count")), 2))
+          .withColumn(
+              "pct_value_to_null",
+              round(col("value_to_null").multiply(100.0).divide(col("count")), 2))
+          .withColumn(
+              "pct_value_changed",
+              round(col("value_changed").multiply(100.0).divide(col("count")), 2))
+          .withColumn(
+              "pct_of_total_matched",
+              round(col("count").multiply(100.0).divide(lit(Math.max(totalMatched, 1L))), 2))
           .write()
           .format("parquet")
           .mode(SaveMode.Overwrite)
