@@ -1,6 +1,6 @@
 # DatasetExportComparisonTool
 
-Spark job that compares a **dataset export** (for example the raw eBird file) with what is stored in GBIF's **production occurrence table**, record by record. It tells you which records are only in the export, which are only in production, and, for the records present in both, which fields differ.
+Spark job that compares a **dataset export** (for example the raw eBird file) with what is stored in GBIF's **production occurrence table**, record by record. It tells you which records are only in the export, which are only in production, and, for the records present in both, which fields differ and what kind of change it is.
 
 Main class: `org.gbif.dataset.DatasetExportComparisonTool`
 
@@ -19,7 +19,8 @@ Main class: `org.gbif.dataset.DatasetExportComparisonTool`
    | `ONLY_PROD`   | In production but missing in the export                  |
 
 6. **Compares fields** for `MATCH` rows. Every export column `x` is compared with the production column `v_x`. Export columns without a production counterpart are not compared (they are still written to the output).
-7. **Writes the results** as Parquet tables in the Hive database (see [Results](#results)).
+7. **Classifies each difference** by change type (null to value, value to null, or value changed) and computes, per column, how many records fall in each type and what share of the records that represents.
+8. **Writes the results** as Parquet tables in the Hive database (see [Results](#results)).
 
 ### Comparison rules
 
@@ -38,6 +39,18 @@ Then the values are compared with null-safe equality (null equals null). For exa
 
 The normalization is only used for the comparison. The values stored in the output tables are the original ones. It applies to all compared columns. Any other difference (hyphens, dots, accents, number formats...) is reported as a difference.
 
+### Change types
+
+Each difference is classified using the same normalization as the comparison, taking production as the old value and the export as the new one:
+
+| Change type     | Production                        | Export                              |
+|-----------------|-----------------------------------|-------------------------------------|
+| `NULL_TO_VALUE` | null (or empty / `NULL`)          | has a value                         |
+| `VALUE_TO_NULL` | has a value                       | null (or empty / `NULL`)            |
+| `VALUE_CHANGED` | has a value                       | has a different value               |
+
+Every difference falls in exactly one type. The classification only looks at the columns listed in `diff_columns`, so it is always consistent with it.
+
 ## Parameters
 
 The job takes positional arguments:
@@ -55,6 +68,7 @@ The job takes positional arguments:
 Requirements:
 
 - Spark with Hive support and an Iceberg catalog named `iceberg` (configured by the job as a Hive catalog), with the Iceberg runtime on the classpath.
+- Spark 3.4 or later (the job uses `array_compact`).
 - Read access to `iceberg.prod_b.occurrence`.
 - Write access to `/stackable/warehouse/<hiveDB>.db/`. The job uses this location to clean up old tables.
 
@@ -99,7 +113,7 @@ Partitioned by `match_status`, so a query that filters by it only reads the matc
 |--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `export_<column>`  | Every column of the export, with the `export_` prefix. Null for `ONLY_PROD` rows.                                                                                 |
 | `prod_gbifid`, `prod_v_<column>` | `gbifid` and every verbatim column of production, with the `prod_` prefix. Null for `ONLY_EXPORT` rows.                                                           |
-| `diff_columns`     | For `MATCH` rows, an array of the columns that differ, e.g. `locality,eventdate`. Empty if all compared columns are equal. Null for the other statuses.    |
+| `diff_columns`     | For `MATCH` rows, an array of the columns that differ, e.g. `[locality, eventdate]`. Empty if all compared columns are equal. Null for the other statuses.        |
 | `has_differences`  | For `MATCH` rows, `true` if `diff_columns` is not empty. Null for the other statuses.                                                                             |
 | `match_status`     | `MATCH`, `ONLY_EXPORT` or `ONLY_PROD`. It is the partition column, so Spark stores it in the directory name (`match_status=MATCH`), not inside the Parquet files. |
 
@@ -117,15 +131,38 @@ Columns: `match_status` (string), `count` (bigint).
 
 A status without rows does not appear. If the keys are unique, `MATCH + ONLY_EXPORT = EXPORT_TOTAL` and `MATCH + ONLY_PROD = PROD_TOTAL`. If a sum is larger, the join produced extra rows because of duplicate `occurrenceid` values.
 
-### `<dest>_column_diffs`: which fields differ
+### `<dest>_column_diffs`: which fields differ, and how
 
-Columns: `column`, `count`. For every column, the number of `MATCH` records where it differs. A record with several differing fields counts once per field, so these counts are not a number of records. Use `<dest>_stats` and `has_differences` for record totals.
+One row per column that differs in at least one `MATCH` record. Columns that never differ do not appear.
 
-| column           | count |
-|------------------|-------|
-| `scientificname` | 14608737 |
-| `taxonconceptid` | 1417196599 |
-| `taxonrank`      | 97460 |
+| Column                 | Type   | Content |
+|------------------------|--------|---------|
+| `column`               | string | Name of the compared column (the export name, e.g. `locality`). |
+| `count`                | bigint | Number of `MATCH` records where the column differs. |
+| `null_to_value`        | bigint | Of those, records where production was null and the export has a value. |
+| `value_to_null`        | bigint | Of those, records where production had a value and the export is null. |
+| `value_changed`        | bigint | Of those, records where both have a value and the values differ. |
+| `pct_null_to_value`    | double | `null_to_value` as a percentage of `count`. |
+| `pct_value_to_null`    | double | `value_to_null` as a percentage of `count`. |
+| `pct_value_changed`    | double | `value_changed` as a percentage of `count`. |
+| `pct_of_total_matched` | double | `count` as a percentage of all `MATCH` records (the `MATCH` row of `<dest>_stats`). |
+
+For every row, `null_to_value + value_to_null + value_changed = count`, and the three `pct_*` columns of the change types add up to about 100 (they are rounded to 2 decimals).
+
+Example (illustrative values; here the total of matched records is 1,500,000,000):
+
+| column           | count      | null_to_value | value_to_null | value_changed | pct_null_to_value | pct_value_to_null | pct_value_changed | pct_of_total_matched |
+|------------------|------------|---------------|---------------|---------------|-------------------|-------------------|-------------------|----------------------|
+| `taxonconceptid` | 1417196599 | 0             | 0             | 1417196599    | 0.0               | 0.0               | 100.0             | 94.48                |
+| `scientificname` | 14608737   | 0             | 0             | 14608737      | 0.0               | 0.0               | 100.0             | 0.97                 |
+| `taxonrank`      | 97460      | 90000         | 0             | 7460          | 92.35             | 0.0               | 7.65              | 0.65                 |
+
+How to read it:
+
+- The `pct_null_to_value`, `pct_value_to_null` and `pct_value_changed` columns tell you what kind of change dominates **within a column**. In the example, `taxonrank` is mostly a field that was empty in production and has a value in the export.
+- `pct_of_total_matched` tells you how **widespread** the difference is across the matched records. In the example, `taxonconceptid` differs in almost every matched record, while `taxonrank` differs in less than 1%.
+- A record with several differing fields counts once per field, so the `count` values (and the `pct_of_total_matched` values) are not a number of records and do not add up across rows. Use `<dest>_stats` and `has_differences` for record totals.
+- Small percentages may show as `0.0` because of the rounding to 2 decimals.
 
 ## Querying the results
 
@@ -135,6 +172,18 @@ SELECT * FROM <dest>_stats;
 
 -- most frequent field differences
 SELECT * FROM <dest>_column_diffs ORDER BY count DESC;
+
+-- fields that were empty in production and now have a value in the export
+SELECT column, null_to_value, pct_null_to_value
+FROM <dest>_column_diffs
+WHERE null_to_value > 0
+ORDER BY null_to_value DESC;
+
+-- fields whose values changed in more than 1% of the matched records
+SELECT column, value_changed, pct_of_total_matched
+FROM <dest>_column_diffs
+WHERE pct_of_total_matched > 1
+ORDER BY pct_of_total_matched DESC;
 
 -- matched records with differences, and the fields involved
 SELECT export_occurrenceid, prod_gbifid, diff_columns
@@ -187,7 +236,8 @@ To find the table location in Spark use `DESCRIBE FORMATTED <dest>`, and in Trin
 
 - **Results are replaced on every run.** The four tables (and their directories under `/stackable/warehouse/<hiveDB>.db/`) are dropped at the start. Copy out anything you need to keep.
 - **Duplicate keys.** If `occurrenceid` is repeated on either side, the join multiplies rows. Compare the totals as described under `<dest>_stats` to detect it.
-- **Null keys.** A row of the export with a null `occurrenceid` never matches and is classified as `ONLY_PROD`.
+- **Null keys.** A row of the export with a null `occurrenceid` never matches and is classified as `ONLY_EXPORT`.
 - **Only same-name columns are compared.** Export column `x` is compared with `v_x`.
 - **Everything is a string when reading from CSV.** With a Hive table, the comparison uses whatever types the table has.
+- **Change types assume production is the old value.** If you read the comparison the other way around, `null_to_value` and `value_to_null` swap meaning.
 - **Hard-coded names.** The production table is `iceberg.prod_b.occurrence`, the join key is `occurrenceid` / `v_occurrenceid` and the warehouse path is `/stackable/warehouse`.
