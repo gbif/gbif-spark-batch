@@ -199,7 +199,7 @@ SELECT prod_gbifid, prod_v_occurrenceid FROM <dest> WHERE match_status = 'ONLY_P
 -- difference between 2 columns
 select export_taxonconceptid, prod_v_taxonconceptid from ebird_2025_v2_comparison where match_status = 'MATCH' and has_differences = true and array_contains(diff_columns, 'taxonconceptid');
 
-
+-- NOTE: to run it in trino the array_contains function is contains
 select export_taxonconceptid, prod_v_taxonconceptid, diff_columns from ebird_2025_v2_comparison where match_status = 'MATCH' and has_differences = true and array_contains(diff_columns, 'taxonconceptid') limit 5;
 
 export_taxonconceptid |  prod_v_taxonconceptid   |                                  diff_columns
@@ -210,6 +210,47 @@ export_taxonconceptid |  prod_v_taxonconceptid   |                              
  avibase-B745D852      | avibase-avibase-B745D852 | [eventid, taxonconceptid, genericname, taxonrank, taxonomicstatus]
  avibase-23863F65      | avibase-avibase-23863F65 | [eventid, recordedby, taxonconceptid, genericname, taxonrank, taxonomicstatus]
 
+
+-- distinct changes in a column with an example occurrenceid
+SELECT
+    export_family,
+    prod_v_family,
+    min(export_occurrenceid) AS occurrenceid
+FROM ebird_2025_v2_comparison
+WHERE match_status = 'MATCH'
+  AND has_differences = true
+  AND array_contains(diff_columns, 'family')
+GROUP BY export_family, prod_v_family
+    LIMIT 50;
+
+export_family   |   prod_v_family   |            occurrenceid
+-------------------+-------------------+-------------------------------------
+ Mimidae           | Icteridae         | URN:catalog:CLO:EBIRD:OBS2628894926
+ Campephagidae     | Picidae           | URN:catalog:CLO:EBIRD:OBS2813133048
+ Ploceidae         | Fringillidae      | URN:catalog:CLO:EBIRD:OBS1029718706
+ Cuculidae         | Dicruridae        | URN:catalog:CLO:EBIRD:OBS2672027732
+ Mimidae           | Tyrannidae        | URN:catalog:CLO:EBIRD:OBS1343439464
+
+-- distinct changes in a column with all the occurrenceid involved
+SELECT
+    export_family,
+    prod_v_family,
+    count(*) AS n,
+    array_agg(export_occurrenceid) AS ids
+FROM ebird_2025_v2_comparison
+WHERE match_status = 'MATCH'
+  AND has_differences = true
+  AND array_contains(diff_columns, 'family')
+GROUP BY export_family, prod_v_family
+    LIMIT 50;
+
+export_family   |   prod_v_family   | n  |    ids                                                                                                                                         >
+------------------+-------------------+----+--------------------------------------------------------------------------------------------------------------------------------------------->
+ Charadriidae     | Psittacidae       |  1 | [URN:catalog:CLO:EBIRD:OBS2499888957]                                                                                                       >
+ Tyrannidae       | Thamnophilidae    |  2 | [URN:catalog:CLO:EBIRD:OBS1581857212, URN:catalog:CLO:EBIRD:OBS2344123981]                                                                  >
+ Thraupidae       | Icteridae         |  3 | [URN:catalog:CLO:EBIRD:OBS2710489079, URN:catalog:CLO:EBIRD:OBS1706795517, URN:catalog:CLO:EBIRD:OBS1825609169]                             >
+ Laridae          | Stercorariidae    |  1 | [URN:catalog:CLO:EBIRD:OBS746097520]                                                                                                        >
+ Hirundinidae     | Tyrannidae        |  2 | [URN:catalog:CLO:EBIRD:OBS2316230733, URN:catalog:CLO:EBIRD:OBS957167248]
 ```
 
 ## Sharing a subset of the results
