@@ -99,7 +99,7 @@ spark-submit \
   my_db 4fa7b334-ce0d-4e88-aaae-2e0c138d049e ebird_raw ebird_2025_comparison
 ```
 
-You can find an example to run it in K8s in the [gbif-configuration](https://github.com/gbif/gbif-configuration/blob/7561b1507e27d479115cc2db73a93b62d354a533/dataset_export_tool/ebird_prod_spark_job_template_fast_storage.yaml) repo.
+You can find an example to run it in K8s in the [gbif-configuration](https://github.com/gbif/gbif-configuration/blob/7561b1507e27d479115cc2db73a93b62d354a533/dataset-batch-spark/ebird_comparison_prod_spark_job_template_fast_storage.yaml) repo.
 
 ## Results
 
